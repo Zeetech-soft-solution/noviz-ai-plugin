@@ -14,7 +14,7 @@
  "label": "Noviz AI",
  "link_type": "DocType",
  "links": [],
- "modified": "2026-08-18 12:35:28.260934",
+ "modified": "2026-08-18 14:17:30.544978",
  "modified_by": "Administrator",
  "module": "Noviz AI",
  "name": "Noviz AI",
@@ -23,6 +23,7 @@
  "parent_page": "",
  "public": 1,
  "quick_lists": [],
+ "restrict_to_domain": "",
  "roles": [
   {
    "role": "Noviz AI Agent"

@@ -69,9 +69,30 @@ if (!document.getElementById('noviz-ai-chat-style')) {
 			cursor: pointer; font-size: inherit; font-weight: 600;
 		}
 		.noviz-ai-chat-msg-assistant .erp-agent-empty { color: var(--text-muted, #8d99a6); font-style: italic; }
-		.noviz-ai-chat-msg-assistant .erp-agent-cards { display: flex; flex-direction: column; gap: 6px; }
-		.noviz-ai-chat-msg-assistant .erp-agent-card-row { display: flex; gap: 8px; font-size: 13px; }
-		.noviz-ai-chat-msg-assistant .erp-agent-card-label { font-weight: 600; min-width: 140px; color: var(--text-muted, #8d99a6); }
+		/* Real bug found live 2026-08-18: this styled ".erp-agent-cards"
+		   (plural) — a class cardsRenderer.ts never actually emits. The
+		   real single-record detail view is ".erp-agent-card" (singular,
+		   one per record) containing ".erp-agent-card-row"/"-label"/
+		   "-value" — those went completely unstyled (plain stacked divs,
+		   no border/spacing), which is genuinely what "so many cards, so
+		   many icons" was describing: not a structure problem (the HTML
+		   is the SAME cardsRenderer.ts Pro's own chat renders), a missing-
+		   CSS one. Ported directly from Pro's own styles.css so a single
+		   quotation/customer/etc. record looks exactly like it does there. */
+		.noviz-ai-chat-msg-assistant .erp-agent-card {
+			border: 1px solid var(--border-color, #d1d8dd); border-radius: 12px;
+			background: var(--fg-color, #fff); box-shadow: 0 1px 3px rgba(0,0,0,0.04); overflow: hidden;
+		}
+		.noviz-ai-chat-msg-assistant .erp-agent-card + .erp-agent-card { margin-top: 10px; }
+		.noviz-ai-chat-msg-assistant .erp-agent-card-row {
+			display: flex; gap: 16px; padding: 9px 14px; border-top: 1px solid var(--border-color, #d1d8dd);
+		}
+		.noviz-ai-chat-msg-assistant .erp-agent-card-row:first-child { border-top: none; }
+		.noviz-ai-chat-msg-assistant .erp-agent-card-label {
+			flex: 0 0 160px; color: var(--text-muted, #8d99a6); font-weight: 600; font-size: 11.5px;
+			letter-spacing: 0.02em; text-transform: uppercase; padding-top: 1px;
+		}
+		.noviz-ai-chat-msg-assistant .erp-agent-card-value { flex: 1; font-size: 13px; word-break: break-word; }
 		.noviz-ai-chat-msg-assistant .erp-agent-next-steps { margin-top: 10px; display: flex; gap: 8px; flex-wrap: wrap; }
 		.noviz-ai-chat-msg-assistant button.erp-agent-next-step:not(.erp-agent-row-id-link) {
 			background: var(--control-bg, #f4f5f6); border: 1px solid var(--border-color, #d1d8dd);
@@ -79,11 +100,21 @@ if (!document.getElementById('noviz-ai-chat-style')) {
 		}
 		/* Per-message export — placed right below the table/card itself,
 		   matching Pro's own "Export to PDF" placement under each result,
-		   not just a single page-level button. */
+		   not just a single page-level button. Buttons sit side-by-side
+		   (not stacked full-width), matching Pro's own layout when both a
+		   print export AND a real document download are available for the
+		   same reply. */
 		.noviz-ai-msg-export {
-			margin-top: 10px; background: none; border: 1px solid var(--border-color, #d1d8dd);
+			margin-top: 10px; margin-right: 8px; background: none; border: 1px solid var(--border-color, #d1d8dd);
 			border-radius: 6px; padding: 5px 10px; font-size: 12px; cursor: pointer; color: #1e7a5c;
-			display: block;
+			display: inline-block; text-decoration: none;
+		}
+		/* The REAL ERPNext-generated PDF (frappe.utils.print_format.
+		   download_pdf) — filled/primary so it reads as the "real
+		   document" action, distinct from the plain browser-print export
+		   next to it. */
+		.noviz-ai-doc-download {
+			background: #1e7a5c; border-color: #1e7a5c; color: #fff; font-weight: 600;
 		}
 
 		.noviz-ai-chat-input-row { display: flex; gap: 8px; padding-top: 12px; border-top: 1px solid var(--border-color, #d1d8dd); }
@@ -91,11 +122,10 @@ if (!document.getElementById('noviz-ai-chat-style')) {
 
 		@media print {
 			body * { visibility: hidden; }
-			/* Printing ONE message (that message's own Export PDF button)
-			   marks it with .noviz-ai-print-this; printing the WHOLE
-			   conversation (the bottom input row's own Export PDF button)
-			   marks the log itself instead — either way, only the marked
-			   element and its children become visible. */
+			/* Printing one message marks it with .noviz-ai-print-this (its
+			   own per-message Export PDF button, see printOnly()'s own doc
+			   comment) — only the marked element and its children become
+			   visible. */
 			.noviz-ai-print-this, .noviz-ai-print-this * { visibility: visible; }
 			.noviz-ai-print-this { position: absolute; top: 0; left: 0; width: 100%; height: auto; }
 			.noviz-ai-msg-export { display: none; }
@@ -132,7 +162,6 @@ class NovizAIChat {
 				<div class="noviz-ai-chat-input-row">
 					<input type="text" class="form-control noviz-ai-chat-input"
 						placeholder="${__('Ask about your ERPNext data...')}" />
-					<button class="btn btn-default btn-sm noviz-ai-chat-export">${__('Export PDF')}</button>
 					<button class="btn btn-primary btn-sm noviz-ai-chat-send">${__('Send')}</button>
 				</div>
 			</div>
@@ -141,15 +170,11 @@ class NovizAIChat {
 		this.$log = this.$container.find('.noviz-ai-chat-log');
 		this.$input = this.$container.find('.noviz-ai-chat-input');
 		this.$sendBtn = this.$container.find('.noviz-ai-chat-send');
-		this.$exportBtn = this.$container.find('.noviz-ai-chat-export');
 
 		this.$sendBtn.on('click', () => this.send());
 		this.$input.on('keydown', (e) => {
 			if (e.key === 'Enter' && !this.sending) this.send();
 		});
-		// Whole-conversation export — marks the log itself as the
-		// printable region (see printOnly()'s own doc comment).
-		this.$exportBtn.on('click', () => this.printOnly(this.$log));
 
 		// A row's own id, or a next_steps action button, inside the
 		// injected HTML is a real clickable prompt-sender — same
@@ -174,9 +199,9 @@ class NovizAIChat {
 		);
 	}
 
-	/** Prints ONLY the given element (a single message, or the whole
-	 *  log) — the browser's own native print-to-PDF, no jsPDF/
-	 *  html2canvas dependency added to this thin plugin. The marker
+	/** Prints ONLY the given element (one message, via its own per-message
+	 *  Export PDF button) — the browser's own native print-to-PDF, no
+	 *  jsPDF/html2canvas dependency added to this thin plugin. The marker
 	 *  class is removed on the browser's own 'afterprint' event (fires
 	 *  whether the user actually printed or cancelled the dialog), so
 	 *  the page returns to normal either way without a fixed timeout
@@ -189,6 +214,22 @@ class NovizAIChat {
 		};
 		window.addEventListener('afterprint', cleanup);
 		window.print();
+	}
+
+	/** Real ERPNext-generated PDF for the one record this reply is about
+	 *  (relayReasoningEngine.ts's own "document" field on a single-record
+	 *  ".get" reply) — the SAME frappe.utils.print_format.download_pdf
+	 *  endpoint ERPNext's own "Print"/"Download PDF" desk button calls.
+	 *  Built and opened entirely client-side: unlike Pro's chat (a
+	 *  separate origin, has to proxy the PDF bytes through its own
+	 *  backend), this page IS a page inside the customer's own real
+	 *  Frappe site, so the browser's already-authenticated session cookie
+	 *  carries straight through — no relay round-trip, no new backend
+	 *  route, and the real per-user/per-document ERPNext permission check
+	 *  applies exactly as if they'd clicked ERPNext's own button. */
+	appendDocumentLink($msg, doc) {
+		const url = `/api/method/frappe.utils.print_format.download_pdf?doctype=${encodeURIComponent(doc.doctype)}&name=${encodeURIComponent(doc.id)}&no_letterhead=0`;
+		$(`<a href="${url}" target="_blank" rel="noopener" class="noviz-ai-msg-export noviz-ai-doc-download">${__('Download PDF')}</a>`).appendTo($msg);
 	}
 
 	/** `html` (when present) is real, pre-rendered markup from the relay
@@ -239,6 +280,9 @@ class NovizAIChat {
 				if (r.message && r.message.html) {
 					$thinking.append(r.message.html);
 					$(`<button type="button" class="noviz-ai-msg-export">${__('Export PDF')}</button>`).appendTo($thinking);
+				}
+				if (r.message && r.message.document) {
+					this.appendDocumentLink($thinking, r.message.document);
 				}
 				// Track the relay's own turnId so the NEXT message
 				// continues this same conversation instead of starting
