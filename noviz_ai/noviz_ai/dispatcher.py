@@ -53,4 +53,18 @@ def execute_call_spec(spec: dict):
 	# check ERPNext's own REST GET-by-name endpoint performs.
 	if not doc.has_permission("read"):
 		frappe.throw(f'Noviz AI: you do not have permission to read this {doctype} record.', frappe.PermissionError)
-	return _json_safe(doc.as_dict())
+	full = _json_safe(doc.as_dict())
+	# Real bug found live 2026-08-18: doc.as_dict() alone returns
+	# EVERY field on the real ERPNext doctype — 90+ internal/technical
+	# fields (docstatus, naming_series, base_*, ...) plus raw nested
+	# child-table arrays (items, payment_schedule) — none of which a
+	# real person asked to see. When the relay's own call spec names the
+	# specific fields it actually wants (the normal case — see
+	# relayCallTranslator.ts's own doc comment), narrow to exactly
+	# those. No fields specified -> full dict, same as before, so this
+	# stays backward compatible with any caller that genuinely wants
+	# everything.
+	fields = spec.get("fields")
+	if not fields:
+		return full
+	return {f: full.get(f) for f in fields}

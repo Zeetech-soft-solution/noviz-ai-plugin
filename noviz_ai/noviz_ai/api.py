@@ -38,11 +38,22 @@ def _relay_headers(settings):
 
 
 @frappe.whitelist()
-def send_message(prompt: str):
+def send_message(prompt: str, previous_turn_id: str = None):
 	"""The one real entry point real users hit from the chat page. Drives
 	the full fetch/continue loop itself — the browser only ever sees the
-	final {"status": "final", "reply": "..."} once this returns, never
-	the intermediate relay round trips."""
+	final {"status": "final", "reply": "...", "turnId": "..."} once this
+	returns, never the intermediate relay round trips.
+
+	`previous_turn_id` (optional): real conversation memory — pass back
+	the LAST final result's own "turnId" so the relay can load that
+	conversation's history and continue it, instead of starting a
+	completely fresh one every single message. The chat page's own JS
+	tracks this across messages within one page load; a reload starts a
+	genuinely new conversation, same session boundary Pro's own chat
+	memory already uses. A missing/stale/wrong-tenant one fails
+	gracefully server-side (relayReasoningEngine.ts's own doc comment) —
+	never a hard error here either.
+	"""
 	if not prompt or not prompt.strip():
 		frappe.throw("prompt is required")
 
@@ -54,6 +65,7 @@ def send_message(prompt: str):
 		f"{base_url}/v1/agent/turn",
 		json={
 			"prompt": prompt,
+			"previous_turn_id": previous_turn_id,
 			# The real logged-in person's own identity/roles — never a
 			# credential. The central relay's own role-gating logic
 			# (Phase 4, not yet built) will use this; today it's carried
