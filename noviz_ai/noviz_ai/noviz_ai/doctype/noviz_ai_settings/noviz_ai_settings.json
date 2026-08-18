@@ -11,6 +11,10 @@
   "api_key",
   "agent_role",
   "policy_section",
+  "policy_module_select",
+  "policy_column_break",
+  "policy_strict_text",
+  "policy_warning_text",
   "module_policies"
  ],
  "fields": [
@@ -50,11 +54,35 @@
    "label": "Company Policy (per module)"
   },
   {
-   "description": "Your own company's business policy, separate from the standard rules the agent already follows for every customer. One row per module - Strict means the agent must refuse the action if the policy is violated; Warning means it proceeds but flags it. Saved here, then sent to the Noviz AI relay so the agent can actually use it.",
+   "description": "Pick a module, then fill in its two boxes below. Switching this dropdown saves your edits into that module's own real record and loads whatever the newly-picked module already has - real data underneath, this is just how it's edited.",
+   "fieldname": "policy_module_select",
+   "fieldtype": "Select",
+   "label": "Module",
+   "options": "Selling\nBuying\nAccounting\nHR / HRMS\nStock / Inventory\nManufacturing\nProjects\nQuality\nSupport\nAssets\nCRM"
+  },
+  {
+   "fieldname": "policy_column_break",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "One policy per line, as many lines as you need. The agent must refuse the action and explain why if any line here is violated. Example: \"Never discount a first-time customer.\"",
+   "fieldname": "policy_strict_text",
+   "fieldtype": "Text",
+   "label": "Strict (must refuse if violated)"
+  },
+  {
+   "description": "One policy per line, as many lines as you need. The agent still proceeds, but flags it clearly to the person. Example: \"Flag any leave request longer than 10 days.\"",
+   "fieldname": "policy_warning_text",
+   "fieldtype": "Text",
+   "label": "Warning (proceed, but flag it)"
+  },
+  {
+   "description": "Your own company's business policy, separate from the standard rules the agent already follows for every customer. One row per module - the real record behind the dropdown/boxes above. Editable directly here too if you prefer the grid view.",
    "fieldname": "module_policies",
    "fieldtype": "Table",
-   "label": "Module Policies",
-   "options": "Noviz AI Module Policy"
+   "label": "Module Policies (all modules, grid view)",
+   "options": "Noviz AI Module Policy",
+   "collapsible": 1
   }
  ],
  "grid_page_length": 50,
