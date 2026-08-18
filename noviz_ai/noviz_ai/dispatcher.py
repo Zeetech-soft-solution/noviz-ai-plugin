@@ -10,7 +10,7 @@ import json
 
 import frappe
 
-SUPPORTED_KINDS = {"get_list", "get_doc", "create_doc", "update_doc"}
+SUPPORTED_KINDS = {"get_list", "get_doc", "create_doc", "update_doc", "reply_communication", "mark_notification_read"}
 
 
 def _json_safe(value):
@@ -68,6 +68,70 @@ def execute_call_spec(spec: dict):
 		if not fields:
 			return full
 		return {f: full.get(f) for f in fields}
+
+	if kind == "reply_communication":
+		# Sends a REAL reply email — reuses Frappe's own real, whitelisted
+		# frappe.core.doctype.communication.email.make(), the exact function
+		# ERPNext's own desk "Reply" button calls. Deliberately NOT a raw
+		# Communication insert() (would leave a record that LOOKS like an
+		# email but was never actually sent through SMTP) and NOT a
+		# hand-assembled frappe.sendmail() (make() already handles real
+		# threading via in_reply_to, and optional PDF-attachment-by-
+		# print-format, correctly).
+		name = spec.get("name")
+		if not name:
+			frappe.throw('Noviz AI: a "reply_communication" call spec requires a "name" (the original Communication id) — cannot execute it.')
+		values = spec.get("values") or {}
+		reply_body = values.get("reply_body")
+		if not reply_body:
+			frappe.throw('Noviz AI: a "reply_communication" call spec requires "values.reply_body" — cannot execute it.')
+
+		original = frappe.get_doc("Communication", name)
+		# Real permission check on the ORIGINAL email — separate from, and
+		# in addition to, the permission check make() itself runs below
+		# against whatever document the thread is linked to (a different,
+		# real "email" ptype check, not implied by construction alone).
+		if not original.has_permission("read"):
+			frappe.throw("Noviz AI: you do not have permission to read this email.", frappe.PermissionError)
+
+		from frappe.core.doctype.communication.email import make as make_communication
+
+		subject = original.subject or ""
+		if not subject.lower().startswith("re:"):
+			subject = f"Re: {subject}"
+
+		kwargs = dict(
+			doctype=original.reference_doctype or None,
+			name=original.reference_name or None,
+			content=reply_body,
+			subject=subject,
+			recipients=original.sender,
+			communication_medium="Email",
+			send_email=1,
+			in_reply_to=original.name,
+		)
+		print_format = values.get("attach_print_format")
+		if print_format and original.reference_doctype and original.reference_name:
+			kwargs["print_format"] = print_format
+		result = make_communication(**kwargs)
+		frappe.db.commit()
+		return _json_safe(result)
+
+	if kind == "mark_notification_read":
+		# Reuses Frappe's own real, privileged mark_as_read() — Notification
+		# Log's own real DocPerm grants "All" read/share but no write at
+		# all (Frappe routes this specific mutation through a whitelisted
+		# function scoped to the CALLING user's own for_user rows instead),
+		# so a generic doc.save() here would 403 for a real, ordinary user.
+		name = spec.get("name")
+		if not name:
+			frappe.throw('Noviz AI: a "mark_notification_read" call spec requires a "name" — cannot execute it.')
+
+		from frappe.desk.doctype.notification_log.notification_log import mark_as_read
+
+		mark_as_read(name)
+		frappe.db.commit()
+		return {"ok": True, "id": name}
 
 	# kind == "create_doc" / "update_doc" — the plugin's own real write
 	# path. This app still has zero opinion on WHAT a Quotation or a
