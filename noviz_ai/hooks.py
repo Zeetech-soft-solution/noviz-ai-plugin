@@ -5,21 +5,53 @@ app_description = "Thin client plugin for Noviz AI - talks only to the Noviz rel
 app_email = "tajdink@gmail.com"
 app_license = "mit"
 
+# Real destination for the app's own top-level Desktop Icon tile — see
+# add_to_apps_screen below. Matches Frappe's own /desk/<page-name> route
+# convention (the exact same one hrms's own hooks.py "app_home" uses for
+# its "Frappe HR" tile).
+app_home = "/desk/noviz-ai-chat"
+
 # Apps
 # ------------------
 
 # required_apps = []
 
 # Each item in the list will be shown as an app in the apps page
-# add_to_apps_screen = [
-# 	{
-# 		"name": "noviz_ai",
-# 		"logo": "/assets/noviz_ai/logo.png",
-# 		"title": "Noviz AI",
-# 		"route": "/noviz_ai",
-# 		"has_permission": "noviz_ai.api.permission.has_app_permission"
-# 	}
-# ]
+#
+# Real gap found live 2026-08-18: without this, the plugin's home-screen
+# tile could only ever go through an intermediate Workspace landing page
+# (Desktop Icon -> Workspace Sidebar -> workspace's own "Noviz AI Chat"
+# shortcut card) — an extra click for a genuinely single-feature app.
+# This is the SAME real mechanism hrms uses for its own "Frappe HR" tile
+# (icon_type "App", link_type "External") to land directly on its own
+# home route with zero intermediate hop — ported here, not guessed.
+# frappe.utils.install.create_desktop_icons_from_installed_apps() reads
+# this hook and creates the real Desktop Icon record automatically
+# (frappe's own after_app_install hook calls it on every fresh install —
+# see frappe/hooks.py's own "after_app_install"), and its own dedup
+# logic (create_desktop_icons_from_workspace()) automatically hides the
+# redundant Workspace-based tile once this one exists, since our single
+# Workspace happens to share its exact name with app_title ("Noviz AI").
+# No "logo" key: real, live-confirmed infra issue found on this deploy
+# — the frontend (nginx) container only has frappe/erpnext baked into
+# its own image; hrms and noviz_ai were installed live into the
+# backend container only, so ANY /assets/noviz_ai/... (or /assets/
+# hrms/...) file path 404s from nginx's side, confirmed even for
+# HRMS's own official logo (pre-existing, unrelated to this app).
+# Omitting "logo" isn't a workaround-hack — it's Frappe's own real,
+# intended fallback path (desktop_icon.html's final {% else %} branch
+# -> frappe.utils.desktop_icon()), the SAME colored-initial-letter
+# avatar already used for the Workspace's own sidebar entry — clean on
+# any deployment, not dependent on this one server's asset-serving
+# quirk being fixed.
+add_to_apps_screen = [
+	{
+		"name": "noviz_ai",
+		"title": "Noviz AI",
+		"route": app_home,
+		"has_permission": "noviz_ai.utils.check_app_permission",
+	}
+]
 
 # Includes in <head>
 # ------------------

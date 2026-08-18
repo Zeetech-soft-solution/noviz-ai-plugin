@@ -110,39 +110,21 @@ def _add_desktop_icon():
 	# files, generated once at that module's own creation time. A
 	# Workspace created after the fact (ours) has no such fixture.
 	#
-	# frappe.desk.doctype.desktop_icon.desktop_icon.add_workspace_to_
-	# desktop() is the SAME real, whitelisted function the desk's own
-	# "Add to Desktop" UI action calls - genuine supported API, not a
-	# hand-fabricated DB row. It creates a real "Workspace Sidebar" (one
-	# item pointing at our Workspace) and a real "Desktop Icon" pointing
-	# at that sidebar, both idempotent (safe to call again on reinstall/
-	# migrate). Run as Administrator (frappe.get_doc "insert" ignoring
-	# permissions still records `owner`, and Desktop Icon visibility
-	# treats an Administrator-owned icon as visible to every user
-	# regardless of who's actually logged in - see get_desktop_icons()'s
-	# own standard/owner OR-condition) so the tile is real and global,
-	# not private to whichever user happens to trigger the install.
-	from frappe.desk.doctype.desktop_icon.desktop_icon import add_workspace_to_desktop
+	# frappe.utils.install.auto_generate_icons_and_sidebar() is the EXACT
+	# real function frappe's own "after_app_install" hook calls for every
+	# single app on every fresh install (frappe/hooks.py's own
+	# after_app_install) — not a hand-rolled equivalent. It builds BOTH
+	# the real Workspace Sidebar for our "Noviz AI" workspace AND every
+	# Desktop Icon this app's hooks.py declares — including the
+	# add_to_apps_screen-driven "App"-type tile (see hooks.py's own doc
+	# comment) that goes straight to the chat page, one click, matching
+	# hrms's own "Frappe HR" tile design. Its own dedup logic
+	# automatically hides the redundant Workspace-based tile once the App
+	# one exists, since our one Workspace shares its name with app_title.
+	# Idempotent — safe to call again on a reinstall/migrate.
+	from frappe.utils.install import auto_generate_icons_and_sidebar
 
-	if frappe.db.exists("Desktop Icon", "Noviz AI"):
-		icon = frappe.get_doc("Desktop Icon", "Noviz AI")
-	else:
-		user = frappe.session.user
-		frappe.set_user("Administrator")
-		try:
-			add_workspace_to_desktop("Noviz AI")
-		finally:
-			frappe.set_user(user)
-		icon = frappe.get_doc("Desktop Icon", "Noviz AI")
-
-	# add_workspace_to_desktop() doesn't copy the Workspace's own icon/
-	# app - fill those in directly so the tile isn't blank, matching
-	# every other real module's tile.
-	if icon.icon != "chat" or icon.app != "noviz_ai":
-		icon.icon = "chat"
-		icon.app = "noviz_ai"
-		icon.bg_color = "gray"
-		icon.save(ignore_permissions=True)
+	auto_generate_icons_and_sidebar(app_name="noviz_ai")
 
 	# Per-user desktop-icon caching (get_desktop_icons()) would otherwise
 	# keep showing a stale (missing) grid until each user's own cache

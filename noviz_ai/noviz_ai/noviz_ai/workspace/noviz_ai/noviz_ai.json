@@ -1,7 +1,7 @@
 {
  "app": "noviz_ai",
  "charts": [],
- "content": "[{\"id\":\"nvz1\",\"type\":\"header\",\"data\":{\"text\":\"<span class=\\\"h4\\\"><b>Noviz AI</b></span>\",\"col\":12}},{\"id\":\"nvz2\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Noviz AI Chat\",\"col\":4}}]",
+ "content": "[{\"id\":\"nvz1\",\"type\":\"header\",\"data\":{\"text\":\"<span class=\\\"h4\\\"><b>Noviz AI</b></span>\",\"col\":12}},{\"id\":\"nvz2\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Noviz AI Chat\",\"col\":4}},{\"id\":\"nvz3\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Noviz AI Settings\",\"col\":4}}]",
  "creation": "2026-08-18 12:30:35.761720",
  "custom_blocks": [],
  "docstatus": 0,
@@ -38,6 +38,14 @@
    "label": "Noviz AI Chat",
    "link_to": "noviz-ai-chat",
    "type": "Page"
+  },
+  {
+   "color": "Grey",
+   "doc_view": "",
+   "icon": "settings",
+   "label": "Noviz AI Settings",
+   "link_to": "Noviz AI Settings",
+   "type": "DocType"
   }
  ],
  "title": "Noviz AI",
