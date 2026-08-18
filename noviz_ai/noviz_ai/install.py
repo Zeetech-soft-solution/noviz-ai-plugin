@@ -11,6 +11,7 @@ def after_install():
 	_grant_settings_doctype_permission()
 	_add_desktop_icon()
 	_add_sidebar_links()
+	_seed_module_policy_rows()
 
 
 def _create_agent_role():
@@ -251,3 +252,21 @@ def _add_sidebar_links():
 	if changed:
 		sidebar.save(ignore_permissions=True)
 		frappe.clear_cache()
+
+
+def _seed_module_policy_rows():
+	# Real, explicit product ask: "each module we have including hrms" -
+	# a real admin opening Settings for the first time should see every
+	# real module already listed with two blank boxes to fill in, not an
+	# empty child table they'd have to know to add ten rows to
+	# themselves one at a time. Idempotent - only seeds when the table
+	# is genuinely empty (a site that already has real rows, from a
+	# reinstall or an admin who already started filling this in, is
+	# never touched).
+	settings = frappe.get_single("Noviz AI Settings")
+	if settings.module_policies:
+		return
+	for module in ["Selling", "Buying", "Accounting", "HR / HRMS", "Stock / Inventory",
+			"Manufacturing", "Projects", "Quality", "Support", "Assets", "CRM"]:
+		settings.append("module_policies", {"module": module, "strict_policy": "", "warning_policy": ""})
+	settings.save(ignore_permissions=True)

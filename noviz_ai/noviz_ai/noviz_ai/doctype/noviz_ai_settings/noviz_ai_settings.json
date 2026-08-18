@@ -9,7 +9,9 @@
   "enabled",
   "relay_base_url",
   "api_key",
-  "agent_role"
+  "agent_role",
+  "policy_section",
+  "module_policies"
  ],
  "fields": [
   {
@@ -41,6 +43,18 @@
    "fieldtype": "Link",
    "label": "Agent Role",
    "options": "Role"
+  },
+  {
+   "fieldname": "policy_section",
+   "fieldtype": "Section Break",
+   "label": "Company Policy (per module)"
+  },
+  {
+   "description": "Your own company's business policy, separate from the standard rules the agent already follows for every customer. One row per module - Strict means the agent must refuse the action if the policy is violated; Warning means it proceeds but flags it. Saved here, then sent to the Noviz AI relay so the agent can actually use it.",
+   "fieldname": "module_policies",
+   "fieldtype": "Table",
+   "label": "Module Policies",
+   "options": "Noviz AI Module Policy"
   }
  ],
  "grid_page_length": 50,

@@ -104,6 +104,38 @@ def get_status():
 	}
 
 
+def sync_module_policies(settings=None):
+	"""Pushes this site's own Company Policy table (Noviz AI Settings'
+	`module_policies` child table) up to the relay — called from that
+	doctype's own on_update hook (noviz_ai_settings.py), never called
+	directly from the chat page. Frappe's own child table IS the source
+	of truth for what's shown/edited here (real, durable, versioned, no
+	separate fetch-to-populate-the-form step needed); this is purely the
+	one-way sync so the relay has its own copy to read at every chat
+	turn without a live round-trip back into this site (see
+	tenantPolicyService.ts's own doc comment for the full "why").
+
+	Deliberately swallows its own failure rather than blocking the
+	settings save — a relay hiccup here shouldn't stop an admin from
+	saving their own local ERPNext record; the next successful save
+	naturally re-syncs the full current state anyway (see relay.routes.ts's
+	own POST /policies — always the full set, not a diff).
+	"""
+	settings = settings or frappe.get_single("Noviz AI Settings")
+	if not (settings.enabled and settings.relay_base_url and settings.get_password("api_key", raise_exception=False)):
+		return
+	try:
+		base_url = settings.relay_base_url.rstrip("/")
+		headers = _relay_headers(settings)
+		policies = [
+			{"module": row.module, "strict_policy": row.strict_policy or "", "warning_policy": row.warning_policy or ""}
+			for row in (settings.module_policies or [])
+		]
+		requests.post(f"{base_url}/v1/agent/policies", json={"policies": policies}, headers=headers, timeout=REQUEST_TIMEOUT_SECONDS)
+	except requests.exceptions.RequestException as e:
+		frappe.log_error(title="Noviz AI: policy sync failed", message=str(e))
+
+
 @frappe.whitelist()
 def send_message(prompt: str, previous_turn_id: str = None):
 	"""The one real entry point real users hit from the chat page. Drives
