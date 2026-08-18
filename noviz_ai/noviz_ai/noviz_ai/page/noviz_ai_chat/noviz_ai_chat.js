@@ -188,8 +188,16 @@ class NovizAIChat {
 		});
 		// Per-message export button, appended in addMessage() below —
 		// delegated the same way since it's added to server-rendered
-		// content after the fact.
-		this.$log.on('click', '.noviz-ai-msg-export', (e) => {
+		// content after the fact. Bound to ".noviz-ai-print-export"
+		// specifically, NOT the shared ".noviz-ai-msg-export" visual
+		// class — real bug found live: the Download PDF link (real
+		// ERPNext PDF, appendDocumentLink below) also carries
+		// ".noviz-ai-msg-export" purely for matching button styling,
+		// so binding this handler to that class made clicking Download
+		// PDF ALSO trigger window.print() on top of its own real
+		// navigation — the user saw "print the details" instead of the
+		// actual document PDF.
+		this.$log.on('click', '.noviz-ai-print-export', (e) => {
 			this.printOnly($(e.currentTarget).closest('.noviz-ai-chat-msg'));
 		});
 
@@ -249,7 +257,7 @@ class NovizAIChat {
 			$msg.html(frappe.markdown(text));
 			if (html) {
 				$msg.append(html);
-				$(`<button type="button" class="noviz-ai-msg-export">${__('Export PDF')}</button>`).appendTo($msg);
+				$(`<button type="button" class="noviz-ai-msg-export noviz-ai-print-export">${__('Export PDF')}</button>`).appendTo($msg);
 			}
 		} else {
 			$msg.text(text);
@@ -279,7 +287,7 @@ class NovizAIChat {
 				$thinking.html(frappe.markdown(reply));
 				if (r.message && r.message.html) {
 					$thinking.append(r.message.html);
-					$(`<button type="button" class="noviz-ai-msg-export">${__('Export PDF')}</button>`).appendTo($thinking);
+					$(`<button type="button" class="noviz-ai-msg-export noviz-ai-print-export">${__('Export PDF')}</button>`).appendTo($thinking);
 				}
 				if (r.message && r.message.document) {
 					this.appendDocumentLink($thinking, r.message.document);
