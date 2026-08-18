@@ -1,0 +1,72 @@
+{
+ "actions": [],
+ "allow_bulk_edit": 1,
+ "allow_rename": 1,
+ "creation": "2026-08-18 07:07:17.924386",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "enabled",
+  "relay_base_url",
+  "api_key",
+  "agent_role"
+ ],
+ "fields": [
+  {
+   "default": "0",
+   "description": "Turns the Noviz AI chat page on/off for this site without removing the configuration.",
+   "fieldname": "enabled",
+   "fieldtype": "Check",
+   "label": "Enabled"
+  },
+  {
+   "description": "The Noviz AI central server this site talks to, e.g. https://noviz.in",
+   "fieldname": "relay_base_url",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Relay Base URL",
+   "reqd": 1
+  },
+  {
+   "description": "Issued once by Noviz AI at signup. Identifies THIS site as a tenant to the central relay - it is never used to access ERPNext data, only to authenticate this site's own requests to the relay API. Stored encrypted (Frappe's own Password fieldtype).",
+   "fieldname": "api_key",
+   "fieldtype": "Password",
+   "in_list_view": 1,
+   "label": "Tenant API Key",
+   "reqd": 1
+  },
+  {
+   "description": "The scoped role real users must have to use the Noviz AI chat page. Created automatically on install - see hooks.py after_install.",
+   "fieldname": "agent_role",
+   "fieldtype": "Link",
+   "label": "Agent Role",
+   "options": "Role"
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "issingle": 1,
+ "links": [],
+ "modified": "2026-08-18 07:07:17.924386",
+ "modified_by": "Administrator",
+ "module": "Noviz AI",
+ "name": "Noviz AI Settings",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "print": 1,
+   "read": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "rows_threshold_for_grid_search": 20,
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": []
+}

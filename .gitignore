@@ -1,0 +1,5 @@
+__pycache__/
+*.pyc
+*.egg-info/
+node_modules/
+.frappe_manager/
