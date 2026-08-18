@@ -205,6 +205,41 @@ class NovizAIChat {
 			'assistant',
 			__('Hi! Ask me anything about your ERPNext data — quotations, sales orders, or customers.')
 		);
+
+		// Real first-time-setup screen — before this existed, an
+		// unconfigured site rendered this exact chat box anyway, and the
+		// FIRST sign anything was wrong was a raw error dialog the moment
+		// someone actually typed a question. Checked async so the chat
+		// shell itself still renders instantly either way.
+		this.checkStatus();
+	}
+
+	/** noviz_ai.api.get_status() is safe to call even when nothing is
+	 *  configured at all (unlike send_message, which throws on purpose
+	 *  once an actual chat attempt is made) — real pre-flight state, not
+	 *  a guess from whether the page loaded. */
+	checkStatus() {
+		frappe.call({
+			method: 'noviz_ai.api.get_status',
+			callback: (r) => {
+				const status = r.message || {};
+				if (status.configured) return;
+
+				this.$input.prop('disabled', true);
+				this.$sendBtn.prop('disabled', true);
+				this.$input.attr('placeholder', __('Noviz AI is not set up yet'));
+
+				const $setup = $('<div class="noviz-ai-chat-msg noviz-ai-chat-msg-assistant noviz-ai-setup-notice"></div>').appendTo(this.$log);
+				if (status.can_configure) {
+					$setup.html(
+						`<p>${__('Noviz AI is not configured yet. Add your Relay Base URL and API Key to get started.')}</p>` +
+						`<a class="btn btn-primary btn-sm" href="/app/noviz-ai-settings">${__('Configure Noviz AI Settings')}</a>`
+					);
+				} else {
+					$setup.text(__('Noviz AI is not set up yet. Ask your ERPNext administrator to configure it under Noviz AI Settings.'));
+				}
+			},
+		});
 	}
 
 	/** Prints ONLY the given element (one message, via its own per-message

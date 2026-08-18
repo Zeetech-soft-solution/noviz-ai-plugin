@@ -37,6 +37,60 @@ def _relay_headers(settings):
 	return {"Authorization": f"Bearer {settings.get_password('api_key')}", "Content-Type": "application/json"}
 
 
+def _post(url, json_body, headers):
+	"""One real request/response round trip, with clean, honest error
+	messages for the two real failure shapes a site admin can hit —
+	never a raw requests.exceptions traceback or an opaque HTTPError
+	surfaced through frappe's own generic error dialog.
+
+	A 401 here means the RELAY rejected this site's own configured API
+	key — invalid, revoked, or (a real, common case) a trial that has
+	expired. This is NOT the same situation as an external party probing
+	the relay's public API to fingerprint tenant state (that's
+	tenantMiddleware.ts's own deliberately-generic "Invalid API key" on
+	the SERVER side, a real, separate decision) — this message is shown
+	only to THIS site's own logged-in user, about THEIR OWN site's own
+	configuration, so being specific and actionable here is genuinely
+	helpful, not a leak.
+	"""
+	try:
+		response = requests.post(url, json=json_body, headers=headers, timeout=REQUEST_TIMEOUT_SECONDS)
+	except requests.exceptions.RequestException as e:
+		frappe.throw(f"Noviz AI could not reach the relay server ({e}). Check the Relay Base URL in Noviz AI Settings, or try again shortly.")
+	if response.status_code == 401:
+		frappe.throw(
+			"Noviz AI could not authenticate with the relay. Your API key may be invalid, revoked, or your trial may have expired. "
+			"Ask your administrator to check Noviz AI Settings, or contact Noviz AI for a new key."
+		)
+	response.raise_for_status()
+	return response.json()
+
+
+@frappe.whitelist()
+def get_status():
+	"""Real pre-flight check the chat page calls BEFORE ever rendering
+	the input box — lets it show a clear "not set up yet" screen instead
+	of silently offering a chat box that will fail the moment someone
+	actually tries to use it (the ONLY way this worked before this
+	existed: type a question, get a raw error dialog). Deliberately never
+	touches the relay and never throws — purely local Settings state, so
+	this is always safe to call even when nothing is configured at all,
+	unlike send_message's own _settings() (which throws on purpose, once
+	an actual chat attempt is made).
+	"""
+	settings = frappe.get_single("Noviz AI Settings")
+	configured = bool(settings.enabled and settings.relay_base_url and settings.get_password("api_key", raise_exception=False))
+	return {
+		"configured": configured,
+		# Only a user who could actually fix the config (write access on
+		# the Settings doctype - System Manager by default, see that
+		# doctype's own permissions) gets a direct "configure it" link;
+		# everyone else gets a plain "ask your administrator" message,
+		# never a dead-end link they can't do anything with.
+		"can_configure": frappe.has_permission("Noviz AI Settings", "write"),
+	}
+
+
 @frappe.whitelist()
 def send_message(prompt: str, previous_turn_id: str = None):
 	"""The one real entry point real users hit from the chat page. Drives
@@ -61,9 +115,9 @@ def send_message(prompt: str, previous_turn_id: str = None):
 	base_url = settings.relay_base_url.rstrip("/")
 	headers = _relay_headers(settings)
 
-	response = requests.post(
+	result = _post(
 		f"{base_url}/v1/agent/turn",
-		json={
+		{
 			"prompt": prompt,
 			"previous_turn_id": previous_turn_id,
 			# The real logged-in person's own identity/roles — never a
@@ -77,11 +131,8 @@ def send_message(prompt: str, previous_turn_id: str = None):
 			"frappe_user": frappe.session.user,
 			"frappe_roles": frappe.get_roles(frappe.session.user),
 		},
-		headers=headers,
-		timeout=REQUEST_TIMEOUT_SECONDS,
+		headers,
 	)
-	response.raise_for_status()
-	result = response.json()
 
 	round_trips = 0
 	while result.get("status") == "fetch":
@@ -97,13 +148,6 @@ def send_message(prompt: str, previous_turn_id: str = None):
 		# same as any other whitelisted method — no swallowing.
 		data = execute_call_spec(call_spec)
 
-		response = requests.post(
-			f"{base_url}/v1/agent/turn/continue",
-			json={"turnId": result["turnId"], "result": data},
-			headers=headers,
-			timeout=REQUEST_TIMEOUT_SECONDS,
-		)
-		response.raise_for_status()
-		result = response.json()
+		result = _post(f"{base_url}/v1/agent/turn/continue", {"turnId": result["turnId"], "result": data}, headers)
 
 	return result
