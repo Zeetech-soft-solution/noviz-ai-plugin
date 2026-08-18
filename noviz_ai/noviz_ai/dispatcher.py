@@ -10,7 +10,7 @@ import json
 
 import frappe
 
-SUPPORTED_KINDS = {"get_list", "get_doc"}
+SUPPORTED_KINDS = {"get_list", "get_doc", "create_doc", "update_doc"}
 
 
 def _json_safe(value):
@@ -42,29 +42,63 @@ def execute_call_spec(spec: dict):
 		)
 		return _json_safe(rows)
 
-	# kind == "get_doc"
+	if kind == "get_doc":
+		name = spec.get("name")
+		if not name:
+			frappe.throw('Noviz AI: a "get_doc" call spec requires a "name" — cannot execute it.')
+		doc = frappe.get_doc(doctype, name)
+		# Real permission check, not implied by get_doc alone succeeding —
+		# frappe.get_doc can construct the object before a permission check
+		# has actually run in every code path; this is the same explicit
+		# check ERPNext's own REST GET-by-name endpoint performs.
+		if not doc.has_permission("read"):
+			frappe.throw(f'Noviz AI: you do not have permission to read this {doctype} record.', frappe.PermissionError)
+		full = _json_safe(doc.as_dict())
+		# Real bug found live 2026-08-18: doc.as_dict() alone returns
+		# EVERY field on the real ERPNext doctype — 90+ internal/technical
+		# fields (docstatus, naming_series, base_*, ...) plus raw nested
+		# child-table arrays (items, payment_schedule) — none of which a
+		# real person asked to see. When the relay's own call spec names the
+		# specific fields it actually wants (the normal case — see
+		# relayCallTranslator.ts's own doc comment), narrow to exactly
+		# those. No fields specified -> full dict, same as before, so this
+		# stays backward compatible with any caller that genuinely wants
+		# everything.
+		fields = spec.get("fields")
+		if not fields:
+			return full
+		return {f: full.get(f) for f in fields}
+
+	# kind == "create_doc" / "update_doc" — the plugin's own real write
+	# path. This app still has zero opinion on WHAT a Quotation or a
+	# Journal Entry is (that stays central, in relayCallTranslator.ts's
+	# toNativeData() field mapping); it only ever runs the literal
+	# {doctype, values} instruction it's handed, through frappe's own ORM,
+	# as whoever is actually logged in — the exact same permission model
+	# ERPNext's own UI would apply to the same action, nothing bypassed
+	# and nothing impersonated. `ignore_permissions` is deliberately never
+	# passed (defaults to False on both insert() and save()) — a write
+	# this session's real ERPNext role doesn't grant must fail with a
+	# real frappe.PermissionError, exactly like using the UI directly
+	# would, not silently succeed because it arrived through chat instead.
+	values = spec.get("values")
+	if not isinstance(values, dict):
+		frappe.throw(f'Noviz AI: a "{kind}" call spec requires "values" — cannot execute it.')
+
+	if kind == "create_doc":
+		doc = frappe.get_doc({"doctype": doctype, **values})
+		doc.insert()
+		frappe.db.commit()
+		return _json_safe(doc.as_dict())
+
+	# kind == "update_doc"
 	name = spec.get("name")
 	if not name:
-		frappe.throw('Noviz AI: a "get_doc" call spec requires a "name" — cannot execute it.')
+		frappe.throw('Noviz AI: an "update_doc" call spec requires a "name" — cannot execute it.')
 	doc = frappe.get_doc(doctype, name)
-	# Real permission check, not implied by get_doc alone succeeding —
-	# frappe.get_doc can construct the object before a permission check
-	# has actually run in every code path; this is the same explicit
-	# check ERPNext's own REST GET-by-name endpoint performs.
-	if not doc.has_permission("read"):
-		frappe.throw(f'Noviz AI: you do not have permission to read this {doctype} record.', frappe.PermissionError)
-	full = _json_safe(doc.as_dict())
-	# Real bug found live 2026-08-18: doc.as_dict() alone returns
-	# EVERY field on the real ERPNext doctype — 90+ internal/technical
-	# fields (docstatus, naming_series, base_*, ...) plus raw nested
-	# child-table arrays (items, payment_schedule) — none of which a
-	# real person asked to see. When the relay's own call spec names the
-	# specific fields it actually wants (the normal case — see
-	# relayCallTranslator.ts's own doc comment), narrow to exactly
-	# those. No fields specified -> full dict, same as before, so this
-	# stays backward compatible with any caller that genuinely wants
-	# everything.
-	fields = spec.get("fields")
-	if not fields:
-		return full
-	return {f: full.get(f) for f in fields}
+	if not doc.has_permission("write"):
+		frappe.throw(f'Noviz AI: you do not have permission to update this {doctype} record.', frappe.PermissionError)
+	doc.update(values)
+	doc.save()
+	frappe.db.commit()
+	return _json_safe(doc.as_dict())

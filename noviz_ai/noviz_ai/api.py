@@ -37,7 +37,7 @@ def _relay_headers(settings):
 	return {"Authorization": f"Bearer {settings.get_password('api_key')}", "Content-Type": "application/json"}
 
 
-def _post(url, json_body, headers):
+def _post(url, json_body, headers, session=None):
 	"""One real request/response round trip, with clean, honest error
 	messages for the two real failure shapes a site admin can hit —
 	never a raw requests.exceptions traceback or an opaque HTTPError
@@ -52,9 +52,22 @@ def _post(url, json_body, headers):
 	only to THIS site's own logged-in user, about THEIR OWN site's own
 	configuration, so being specific and actionable here is genuinely
 	helpful, not a leak.
+
+	`session` (optional): a requests.Session to route this call through,
+	so repeated round trips within the SAME turn (see send_message's own
+	fetch/continue loop) reuse one already-negotiated TCP+TLS connection
+	to the relay instead of paying a fresh handshake on every single
+	round trip — a real, measured latency cost on top of the relay's own
+	extra network hop (see relayReasoningEngine.ts's own doc comment on
+	why the relay architecture is inherently slower than a direct-
+	connection engine; this at least stops making it slower than it has
+	to be). Falls back to a one-off `requests.post` when no session is
+	given (get_status's own pre-flight check, a single call with nothing
+	to reuse a connection FOR).
 	"""
+	poster = session.post if session else requests.post
 	try:
-		response = requests.post(url, json=json_body, headers=headers, timeout=REQUEST_TIMEOUT_SECONDS)
+		response = poster(url, json=json_body, headers=headers, timeout=REQUEST_TIMEOUT_SECONDS)
 	except requests.exceptions.RequestException as e:
 		frappe.throw(f"Noviz AI could not reach the relay server ({e}). Check the Relay Base URL in Noviz AI Settings, or try again shortly.")
 	if response.status_code == 401:
@@ -115,39 +128,46 @@ def send_message(prompt: str, previous_turn_id: str = None):
 	base_url = settings.relay_base_url.rstrip("/")
 	headers = _relay_headers(settings)
 
-	result = _post(
-		f"{base_url}/v1/agent/turn",
-		{
-			"prompt": prompt,
-			"previous_turn_id": previous_turn_id,
-			# The real logged-in person's own identity/roles — never a
-			# credential. The central relay's own role-gating logic
-			# (Phase 4, not yet built) will use this; today it's carried
-			# through but not yet enforced beyond what the fixed V1 tool
-			# set already allows for every tenant. Real ERPNext DATA
-			# access is governed entirely by dispatcher.py using frappe's
-			# own already-authenticated session for whoever is actually
-			# logged in — this field never widens or narrows that.
-			"frappe_user": frappe.session.user,
-			"frappe_roles": frappe.get_roles(frappe.session.user),
-		},
-		headers,
-	)
+	# One real TCP+TLS connection to the relay, reused for every round
+	# trip THIS turn needs (see _post's own doc comment) — opened once
+	# here, closed automatically at the end of this function regardless
+	# of how the loop below exits (return or an exception propagating
+	# out of execute_call_spec/_post).
+	with requests.Session() as session:
+		result = _post(
+			f"{base_url}/v1/agent/turn",
+			{
+				"prompt": prompt,
+				"previous_turn_id": previous_turn_id,
+				# The real logged-in person's own identity/roles — never a
+				# credential. The central relay's own role-gating logic
+				# (Phase 4, not yet built) will use this; today it's carried
+				# through but not yet enforced beyond what the fixed V1 tool
+				# set already allows for every tenant. Real ERPNext DATA
+				# access is governed entirely by dispatcher.py using frappe's
+				# own already-authenticated session for whoever is actually
+				# logged in — this field never widens or narrows that.
+				"frappe_user": frappe.session.user,
+				"frappe_roles": frappe.get_roles(frappe.session.user),
+			},
+			headers,
+			session,
+		)
 
-	round_trips = 0
-	while result.get("status") == "fetch":
-		round_trips += 1
-		if round_trips > MAX_ROUND_TRIPS:
-			frappe.throw(f"Noviz AI: this turn needed more than {MAX_ROUND_TRIPS} data fetches — stopping rather than looping forever.")
+		round_trips = 0
+		while result.get("status") == "fetch":
+			round_trips += 1
+			if round_trips > MAX_ROUND_TRIPS:
+				frappe.throw(f"Noviz AI: this turn needed more than {MAX_ROUND_TRIPS} data fetches — stopping rather than looping forever.")
 
-		call_spec = result["request"]
-		# The ONLY place this app ever touches real ERPNext data — see
-		# dispatcher.py's own doc comment. Whatever error it raises
-		# (a bad doctype, a permission the current user genuinely
-		# doesn't have) propagates straight up as a real frappe error,
-		# same as any other whitelisted method — no swallowing.
-		data = execute_call_spec(call_spec)
+			call_spec = result["request"]
+			# The ONLY place this app ever touches real ERPNext data — see
+			# dispatcher.py's own doc comment. Whatever error it raises
+			# (a bad doctype, a permission the current user genuinely
+			# doesn't have) propagates straight up as a real frappe error,
+			# same as any other whitelisted method — no swallowing.
+			data = execute_call_spec(call_spec)
 
-		result = _post(f"{base_url}/v1/agent/turn/continue", {"turnId": result["turnId"], "result": data}, headers)
+			result = _post(f"{base_url}/v1/agent/turn/continue", {"turnId": result["turnId"], "result": data}, headers, session)
 
-	return result
+		return result
