@@ -1,0 +1,44 @@
+{
+ "app": "noviz_ai",
+ "charts": [],
+ "content": "[{\"id\":\"nvz1\",\"type\":\"header\",\"data\":{\"text\":\"<span class=\\\"h4\\\"><b>Noviz AI</b></span>\",\"col\":12}},{\"id\":\"nvz2\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Noviz AI Chat\",\"col\":4}}]",
+ "creation": "2026-08-18 12:30:35.761720",
+ "custom_blocks": [],
+ "docstatus": 0,
+ "doctype": "Workspace",
+ "hide_custom": 0,
+ "icon": "chat",
+ "idx": 0,
+ "indicator_color": "green",
+ "is_hidden": 0,
+ "label": "Noviz AI",
+ "link_type": "DocType",
+ "links": [],
+ "modified": "2026-08-18 12:35:28.260934",
+ "modified_by": "Administrator",
+ "module": "Noviz AI",
+ "name": "Noviz AI",
+ "number_cards": [],
+ "owner": "Administrator",
+ "parent_page": "",
+ "public": 1,
+ "quick_lists": [],
+ "roles": [
+  {
+   "role": "Noviz AI Agent"
+  }
+ ],
+ "sequence_id": 0.0,
+ "shortcuts": [
+  {
+   "color": "Green",
+   "doc_view": "",
+   "icon": "chat",
+   "label": "Noviz AI Chat",
+   "link_to": "noviz-ai-chat",
+   "type": "Page"
+  }
+ ],
+ "title": "Noviz AI",
+ "type": "Workspace"
+}
