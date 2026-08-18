@@ -10,6 +10,7 @@ def after_install():
 	_grant_page_doctype_permission()
 	_grant_settings_doctype_permission()
 	_add_desktop_icon()
+	_add_sidebar_links()
 
 
 def _create_agent_role():
@@ -131,3 +132,66 @@ def _add_desktop_icon():
 	# naturally expires - clear it site-wide so this takes effect
 	# immediately for every existing user, not just new logins.
 	frappe.cache.delete_key("desktop_icons")
+
+
+def _add_sidebar_links():
+	# Real gap found live: the auto-generated Workspace Sidebar
+	# (auto_generate_icons_and_sidebar above) creates exactly ONE item -
+	# a bare "Noviz AI" link back to the workspace itself, nothing else.
+	# Confirmed live against a REAL module's own sidebar (Selling's own
+	# workspace_sidebar/selling.json, checked directly): a real module
+	# gives its sidebar actual navigation - Home, then real links to the
+	# doctypes/pages/settings that module actually has, not just a
+	# single self-referencing entry. Left as the bare auto-generated
+	# version, the whole left sidebar for this app was functionally
+	# empty - no way to find "Noviz AI Settings" at all except already
+	# knowing the exact URL, "how do we even know where settings is"
+	# being the real, live question this answers. Adds the SAME two
+	# real destinations already on the workspace's own body (the "Noviz
+	# AI Chat"/"Noviz AI Settings" shortcut cards) as real sidebar
+	# links too - matching how Selling's own sidebar ALSO duplicates
+	# what's on its workspace body, not a new pattern invented here.
+	# Idempotent - checks each item's own label before appending.
+	sidebar = frappe.get_doc("Workspace Sidebar", "Noviz AI")
+	existing_labels = {item.label for item in sidebar.items}
+	changed = False
+
+	if "Noviz AI Chat" not in existing_labels:
+		sidebar.append(
+			"items",
+			{
+				"type": "Link",
+				"label": "Noviz AI Chat",
+				"link_type": "Page",
+				"link_to": "noviz-ai-chat",
+				"icon": "chat",
+				"indent": 0,
+				"collapsible": 1,
+				"keep_closed": 0,
+				"show_arrow": 0,
+				"child": 0,
+			},
+		)
+		changed = True
+
+	if "Noviz AI Settings" not in existing_labels:
+		sidebar.append(
+			"items",
+			{
+				"type": "Link",
+				"label": "Noviz AI Settings",
+				"link_type": "DocType",
+				"link_to": "Noviz AI Settings",
+				"icon": "settings",
+				"indent": 0,
+				"collapsible": 1,
+				"keep_closed": 0,
+				"show_arrow": 0,
+				"child": 0,
+			},
+		)
+		changed = True
+
+	if changed:
+		sidebar.save(ignore_permissions=True)
+		frappe.clear_cache()
