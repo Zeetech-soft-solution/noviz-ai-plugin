@@ -1,0 +1,23 @@
+{
+ "content": null,
+ "creation": "2026-08-18 09:43:19.768262",
+ "docstatus": 0,
+ "doctype": "Page",
+ "idx": 0,
+ "modified": "2026-08-18 09:43:51.774661",
+ "modified_by": "Administrator",
+ "module": "Noviz AI",
+ "name": "noviz-ai-chat",
+ "owner": "Administrator",
+ "page_name": "noviz-ai-chat",
+ "roles": [
+  {
+   "role": "Noviz AI Agent"
+  }
+ ],
+ "script": null,
+ "standard": "Yes",
+ "style": null,
+ "system_page": 0,
+ "title": "Noviz AI Chat"
+}
