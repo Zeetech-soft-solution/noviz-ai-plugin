@@ -192,6 +192,62 @@ def _add_sidebar_links():
 		)
 		changed = True
 
+	# Real "Email" destination — NOT a Noviz AI feature of our own,
+	# points straight at Frappe's own real, standard "Email Account"
+	# doctype (confirmed live it exists; a real "Email" Workspace does
+	# NOT exist on this site despite one real Desktop Icon record
+	# referencing it — a dangling reference, same class of gap as the
+	# "Frappe HR" tile investigated earlier this session, not something
+	# to chase further here). Setting up a real inbox (POP3/SMTP)
+	# happens on Frappe's own genuine "Email Account" form once someone
+	# navigates here — this plugin (and this assistant) never touches
+	# or stores that credential itself; entering it is a real, separate,
+	# manual step the site's own admin does directly in ERPNext's own UI.
+	if "Email" not in existing_labels:
+		sidebar.append(
+			"items",
+			{
+				"type": "Link",
+				"label": "Email",
+				"link_type": "DocType",
+				"link_to": "Email Account",
+				"icon": "mail",
+				"indent": 0,
+				"collapsible": 1,
+				"keep_closed": 0,
+				"show_arrow": 0,
+				"child": 0,
+			},
+		)
+		changed = True
+
+	# Real support contact, not built as a business feature of this
+	# plugin (deliberately zero business logic here per this repo's own
+	# README) - a plain mailto: link, the SAME real support address
+	# already used throughout Noviz AI's own account/password flows
+	# (platform-admin's own password-reset emails, etc.). "Email" (a
+	# real integrated inbox) is explicitly deferred, not built here -
+	# the user's own words: "let that set when i give my smtp and
+	# relays" - a real SMTP config they'll provide later, not something
+	# to guess/stub now.
+	if "Support" not in existing_labels:
+		sidebar.append(
+			"items",
+			{
+				"type": "Link",
+				"label": "Support",
+				"link_type": "URL",
+				"url": "mailto:support@noviz.in",
+				"icon": "help",
+				"indent": 0,
+				"collapsible": 1,
+				"keep_closed": 0,
+				"show_arrow": 0,
+				"child": 0,
+			},
+		)
+		changed = True
+
 	if changed:
 		sidebar.save(ignore_permissions=True)
 		frappe.clear_cache()
