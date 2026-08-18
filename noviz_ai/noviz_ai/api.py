@@ -136,12 +136,39 @@ def sync_module_policies(settings=None):
 		frappe.log_error(title="Noviz AI: policy sync failed", message=str(e))
 
 
+def _drive_fetch_continue_loop(result, base_url, headers, session):
+	"""Shared by send_message and scan_image — both start a turn one
+	different way (a typed prompt vs a scanned image), but from here on
+	it's the exact same real fetch/continue machine: keep executing
+	whatever generic call the relay asks for, using this site's own
+	already-authenticated session (dispatcher.py), until it finalizes.
+	The browser only ever sees the final {"status": "final", ...} once
+	this returns, never the intermediate relay round trips.
+	"""
+	round_trips = 0
+	while result.get("status") == "fetch":
+		round_trips += 1
+		if round_trips > MAX_ROUND_TRIPS:
+			frappe.throw(f"Noviz AI: this turn needed more than {MAX_ROUND_TRIPS} data fetches — stopping rather than looping forever.")
+
+		call_spec = result["request"]
+		# The ONLY place this app ever touches real ERPNext data — see
+		# dispatcher.py's own doc comment. Whatever error it raises
+		# (a bad doctype, a permission the current user genuinely
+		# doesn't have) propagates straight up as a real frappe error,
+		# same as any other whitelisted method — no swallowing.
+		data = execute_call_spec(call_spec)
+
+		result = _post(f"{base_url}/v1/agent/turn/continue", {"turnId": result["turnId"], "result": data}, headers, session)
+
+	return result
+
+
 @frappe.whitelist()
 def send_message(prompt: str, previous_turn_id: str = None):
-	"""The one real entry point real users hit from the chat page. Drives
-	the full fetch/continue loop itself — the browser only ever sees the
-	final {"status": "final", "reply": "...", "turnId": "..."} once this
-	returns, never the intermediate relay round trips.
+	"""The one real entry point real users hit from the chat page for a
+	typed message. See _drive_fetch_continue_loop's own doc comment for
+	what happens after the first request.
 
 	`previous_turn_id` (optional): real conversation memory — pass back
 	the LAST final result's own "turnId" so the relay can load that
@@ -172,34 +199,87 @@ def send_message(prompt: str, previous_turn_id: str = None):
 				"prompt": prompt,
 				"previous_turn_id": previous_turn_id,
 				# The real logged-in person's own identity/roles — never a
-				# credential. The central relay's own role-gating logic
-				# (Phase 4, not yet built) will use this; today it's carried
-				# through but not yet enforced beyond what the fixed V1 tool
-				# set already allows for every tenant. Real ERPNext DATA
-				# access is governed entirely by dispatcher.py using frappe's
-				# own already-authenticated session for whoever is actually
-				# logged in — this field never widens or narrows that.
+				# credential. Real ERPNext DATA access is governed entirely
+				# by dispatcher.py using frappe's own already-authenticated
+				# session for whoever is actually logged in — this field
+				# never widens or narrows that.
 				"frappe_user": frappe.session.user,
 				"frappe_roles": frappe.get_roles(frappe.session.user),
 			},
 			headers,
 			session,
 		)
+		return _drive_fetch_continue_loop(result, base_url, headers, session)
 
-		round_trips = 0
-		while result.get("status") == "fetch":
-			round_trips += 1
-			if round_trips > MAX_ROUND_TRIPS:
-				frappe.throw(f"Noviz AI: this turn needed more than {MAX_ROUND_TRIPS} data fetches — stopping rather than looping forever.")
 
-			call_spec = result["request"]
-			# The ONLY place this app ever touches real ERPNext data — see
-			# dispatcher.py's own doc comment. Whatever error it raises
-			# (a bad doctype, a permission the current user genuinely
-			# doesn't have) propagates straight up as a real frappe error,
-			# same as any other whitelisted method — no swallowing.
-			data = execute_call_spec(call_spec)
+@frappe.whitelist()
+def scan_image(note: str = None, previous_turn_id: str = None):
+	"""Real port of Pro's own attach/camera scan feature (Composer.tsx's
+	📎/📷 buttons -> agent.routes.ts's /scan route -> documentScanner.ts),
+	adapted for this thin-plugin architecture: the image itself travels
+	to the CENTRAL relay (which does the real OpenAI vision OCR call —
+	this plugin has no OpenAI key of its own, by design, same as every
+	other LLM call), and everything AFTER that (verifying the named
+	party, checking for a real matching record, actually creating
+	something) drives through the exact same fetch/continue machine as
+	a typed prompt — no shortcut around role-gating, business rules, or
+	the "always confirm before creating" behavior a typed "create a
+	purchase order for..." prompt already goes through.
 
-			result = _post(f"{base_url}/v1/agent/turn/continue", {"turnId": result["turnId"], "result": data}, headers, session)
+	The uploaded file arrives the same way any Frappe file-upload
+	whitelisted method receives one — `frappe.request.files`, not a
+	regular `frappe.call` arg (browsers can't put binary file content
+	into a JSON body) — see noviz_ai_chat.js's own upload code for the
+	matching client side.
+	"""
+	upload = frappe.request.files.get("image") if frappe.request else None
+	if not upload:
+		frappe.throw("image is required (jpeg/png/webp, max 2MB)")
 
-		return result
+	settings = _settings()
+	base_url = settings.relay_base_url.rstrip("/")
+	# multipart/form-data, not JSON — the relay's own scan route uses
+	# multer (real file upload middleware), matching agent.routes.ts's
+	# own /scan route on the single-tenant product. Auth still travels
+	# the same way (the Bearer header), just no "Content-Type: application/json"
+	# this one time (requests sets the correct multipart header itself
+	# once `files=` is used).
+	headers = {"Authorization": f"Bearer {settings.get_password('api_key')}"}
+
+	image_bytes = upload.read()
+	mimetype = upload.content_type or "image/jpeg"
+
+	with requests.Session() as session:
+		try:
+			response = session.post(
+				f"{base_url}/v1/agent/scan",
+				files={"image": (upload.filename, image_bytes, mimetype)},
+				data={
+					"frappe_user": frappe.session.user,
+					"frappe_roles": frappe.as_json(frappe.get_roles(frappe.session.user)),
+					"previous_turn_id": previous_turn_id or "",
+					"note": note or "",
+					# Real, generic own-company hint the relay uses to tell
+					# "we're the recipient, not the customer/supplier" apart
+					# — see relay.routes.ts's own /scan route doc comment.
+					# frappe.defaults, not a hardcoded value, so this holds
+					# for whatever company any given site actually runs as.
+					"company_name": frappe.defaults.get_global_default("company") or "",
+				},
+				headers=headers,
+				timeout=REQUEST_TIMEOUT_SECONDS,
+			)
+		except requests.exceptions.RequestException as e:
+			frappe.throw(f"Noviz AI could not reach the relay server ({e}). Check the Relay Base URL in Noviz AI Settings, or try again shortly.")
+		if response.status_code == 401:
+			frappe.throw(
+				"Noviz AI could not authenticate with the relay. Your API key may be invalid, revoked, or your trial may have expired. "
+				"Ask your administrator to check Noviz AI Settings, or contact Noviz AI for a new key."
+			)
+		if response.status_code == 422:
+			frappe.throw(response.json().get("error", "Could not read anything from this image — try a clearer, well-lit photo"))
+		response.raise_for_status()
+		result = response.json()
+
+		json_headers = _relay_headers(settings)
+		return _drive_fetch_continue_loop(result, base_url, json_headers, session)

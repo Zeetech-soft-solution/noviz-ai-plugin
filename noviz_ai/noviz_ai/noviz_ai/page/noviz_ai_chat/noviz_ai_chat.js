@@ -130,6 +130,24 @@ if (!document.getElementById('noviz-ai-chat-style')) {
 
 		.noviz-ai-chat-input-row { display: flex; gap: 8px; padding-top: 12px; border-top: 1px solid var(--border-color, #d1d8dd); }
 		.noviz-ai-chat-input { flex: 1; }
+			/* Attach/camera — real port of Pro's own Composer.tsx icon pair,
+			same two icons, same position (left of the text input), same
+			behavior (both call the same send-an-image path with an
+			optional note). */
+			.noviz-ai-chat-icon-btn {
+				background: none; border: 1px solid var(--border-color, #d1d8dd); border-radius: 6px;
+				width: 36px; height: 36px; font-size: 16px; cursor: pointer; flex-shrink: 0;
+				display: flex; align-items: center; justify-content: center;
+			}
+			.noviz-ai-chat-icon-btn:hover { background: var(--control-bg, #f4f5f6); }
+			.noviz-ai-camera-overlay {
+				position: fixed; inset: 0; background: rgba(0,0,0,0.85); z-index: 2000;
+				display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px;
+			}
+			.noviz-ai-camera-overlay video { max-width: 92vw; max-height: 70vh; border-radius: 8px; }
+			.noviz-ai-camera-overlay .noviz-ai-camera-actions { display: flex; gap: 12px; }
+			.noviz-ai-scan-note-row { display: flex; gap: 8px; padding: 10px 0 0; }
+			.noviz-ai-scan-note-row input { flex: 1; }
 
 		@media print {
 			body * { visibility: hidden; }
@@ -171,6 +189,9 @@ class NovizAIChat {
 				</div>
 				<div class="noviz-ai-chat-log"></div>
 				<div class="noviz-ai-chat-input-row">
+					<button type="button" class="noviz-ai-chat-icon-btn noviz-ai-attach-btn" title="${__('Attach an image')}">📎</button>
+					<button type="button" class="noviz-ai-chat-icon-btn noviz-ai-camera-btn" title="${__('Scan with camera')}">📷</button>
+					<input type="file" class="noviz-ai-file-input" accept="image/jpeg,image/png,image/webp" style="display:none" />
 					<input type="text" class="form-control noviz-ai-chat-input"
 						placeholder="${__('Ask about your ERPNext data...')}" />
 					<button class="btn btn-primary btn-sm noviz-ai-chat-send">${__('Send')}</button>
@@ -181,8 +202,29 @@ class NovizAIChat {
 		this.$log = this.$container.find('.noviz-ai-chat-log');
 		this.$input = this.$container.find('.noviz-ai-chat-input');
 		this.$sendBtn = this.$container.find('.noviz-ai-chat-send');
+		this.$fileInput = this.$container.find('.noviz-ai-file-input');
 
 		this.$sendBtn.on('click', () => this.send());
+		// Real port of Pro's own Composer.tsx attach/camera pair — 2MB cap
+		// (same limit the relay's own scan route enforces server-side via
+		// multer), image/jpeg|png|webp only.
+		const MAX_IMAGE_BYTES = 2 * 1024 * 1024;
+		this.$container.find('.noviz-ai-attach-btn').on('click', () => {
+			if (!this.sending) this.$fileInput.trigger('click');
+		});
+		this.$fileInput.on('change', (e) => {
+			const file = e.target.files && e.target.files[0];
+			e.target.value = '';
+			if (!file) return;
+			if (file.size > MAX_IMAGE_BYTES) {
+				frappe.msgprint(__('That image is too large — please pick one under 2MB.'));
+				return;
+			}
+			this.promptForNoteAndSend(file);
+		});
+		this.$container.find('.noviz-ai-camera-btn').on('click', () => {
+			if (!this.sending) this.openCamera();
+		});
 		this.$input.on('keydown', (e) => {
 			if (e.key === 'Enter' && !this.sending) this.send();
 		});
@@ -312,6 +354,30 @@ class NovizAIChat {
 		return $msg;
 	}
 
+	/** Shared by send() and sendImage() — the actual result rendering is
+	 *  identical either way (a normal chat turn or a scanned-image turn
+	 *  both finish as the SAME {reply, html, document, turnId} shape),
+	 *  only how the turn STARTS differs. */
+	_renderTurnResult($thinking, message) {
+		const reply = (message && message.reply) || __('No reply received.');
+		$thinking.html(frappe.markdown(reply));
+		if (message && message.html) {
+			$thinking.append(message.html);
+			$(`<button type="button" class="noviz-ai-msg-export noviz-ai-print-export">${__('Export PDF')}</button>`).appendTo($thinking);
+		}
+		if (message && message.document) {
+			this.appendDocumentLink($thinking, message.document);
+		}
+		// Track the relay's own turnId so the NEXT message continues this
+		// same conversation instead of starting fresh — real memory, not
+		// just a longer single reply. Works the same way whether the turn
+		// started from typed text or a scanned image.
+		if (message && message.turnId) {
+			this.lastTurnId = message.turnId;
+		}
+		this.$log.scrollTop(this.$log[0].scrollHeight);
+	}
+
 	/** `promptOverride` lets a row-id click / next-step button send a
 	 *  real new prompt without the user retyping it — same mechanism
 	 *  the ordinary input box uses underneath. */
@@ -328,24 +394,7 @@ class NovizAIChat {
 		frappe.call({
 			method: 'noviz_ai.api.send_message',
 			args: { prompt: prompt, previous_turn_id: this.lastTurnId },
-			callback: (r) => {
-				const reply = (r.message && r.message.reply) || __('No reply received.');
-				$thinking.html(frappe.markdown(reply));
-				if (r.message && r.message.html) {
-					$thinking.append(r.message.html);
-					$(`<button type="button" class="noviz-ai-msg-export noviz-ai-print-export">${__('Export PDF')}</button>`).appendTo($thinking);
-				}
-				if (r.message && r.message.document) {
-					this.appendDocumentLink($thinking, r.message.document);
-				}
-				// Track the relay's own turnId so the NEXT message
-				// continues this same conversation instead of starting
-				// fresh — real memory, not just a longer single reply.
-				if (r.message && r.message.turnId) {
-					this.lastTurnId = r.message.turnId;
-				}
-				this.$log.scrollTop(this.$log[0].scrollHeight);
-			},
+			callback: (r) => this._renderTurnResult($thinking, r.message),
 			error: () => {
 				// frappe.call already shows the real server error to the
 				// user via its own dialog — just clear the placeholder
@@ -357,5 +406,151 @@ class NovizAIChat {
 				this.$sendBtn.prop('disabled', false);
 			},
 		});
+	}
+
+	/** A short optional note travels alongside the image (e.g. "this is
+	 *  from our supplier X") — same real field agent.routes.ts's own
+	 *  /scan route has always accepted, ported here as a plain prompt
+	 *  dialog rather than a persistent input, since it's genuinely
+	 *  optional and per-image.
+	 *
+	 *  Real bug found live via browser testing: Frappe's own default
+	 *  Dialog behavior closes on an outside/backdrop click OR Escape,
+	 *  with NO callback and no visible feedback — an accidental
+	 *  off-target click silently discarded the already-picked image,
+	 *  with nothing telling the person their scan never went anywhere
+	 *  (confirmed live: a coordinate slightly off the real Send button
+	 *  landed on the backdrop instead and the request never fired at
+	 *  all). `static: true` is Frappe's own documented option for
+	 *  exactly this — the ONLY ways to close this dialog now are the
+	 *  explicit Send action or its own visible × button, never an
+	 *  accidental miss-click. `onhide` cleans up the dialog's own DOM
+	 *  element every time it closes (either path), rather than leaving
+	 *  a hidden, orphaned one behind for every scan attempted in a long
+	 *  session — also confirmed live (the SAME accidental-dismiss
+	 *  incident left a real second stacked dialog in the page). */
+	promptForNoteAndSend(file) {
+		const d = new frappe.ui.Dialog({
+			title: __('Scan document'),
+			static: true,
+			fields: [
+				{ fieldtype: 'Data', fieldname: 'note', label: __('Note (optional)'), description: __('Anything that helps, e.g. which supplier or customer this is from.') },
+			],
+			primary_action_label: __('Send'),
+			primary_action: (values) => {
+				d.hide();
+				this.sendImage(file, values.note || '');
+			},
+			onhide: () => d.$wrapper.remove(),
+		});
+		d.show();
+	}
+
+	/** Real port of Pro's own CameraCapture.tsx — live camera preview,
+	 *  one frame captured to canvas on demand, exported as JPEG stepping
+	 *  quality down [0.85, 0.7, 0.55, 0.4] until under the same 2MB cap
+	 *  the relay enforces, media stream always stopped on close (capture,
+	 *  cancel, or the browser denying camera access) so the camera light
+	 *  never stays on after this overlay closes. */
+	openCamera() {
+		const MAX_IMAGE_BYTES = 2 * 1024 * 1024;
+		const $overlay = $(`
+			<div class="noviz-ai-camera-overlay">
+				<video autoplay playsinline></video>
+				<div class="noviz-ai-camera-actions">
+					<button type="button" class="btn btn-primary noviz-ai-camera-capture">${__('Capture')}</button>
+					<button type="button" class="btn btn-secondary noviz-ai-camera-cancel">${__('Cancel')}</button>
+				</div>
+			</div>
+		`).appendTo(document.body);
+		const $video = $overlay.find('video')[0];
+		let stream = null;
+
+		const close = () => {
+			if (stream) stream.getTracks().forEach((t) => t.stop());
+			$overlay.remove();
+		};
+		$overlay.find('.noviz-ai-camera-cancel').on('click', close);
+
+		navigator.mediaDevices
+			.getUserMedia({ video: { facingMode: 'environment' } })
+			.then((s) => {
+				stream = s;
+				$video.srcObject = s;
+			})
+			.catch(() => {
+				frappe.msgprint(__('Could not access the camera. Check your browser permissions, or use Attach instead.'));
+				close();
+			});
+
+		$overlay.find('.noviz-ai-camera-capture').on('click', () => {
+			const canvas = document.createElement('canvas');
+			canvas.width = $video.videoWidth;
+			canvas.height = $video.videoHeight;
+			canvas.getContext('2d').drawImage($video, 0, 0);
+
+			const qualities = [0.85, 0.7, 0.55, 0.4];
+			const tryQuality = (i) => {
+				canvas.toBlob(
+					(blob) => {
+						if (!blob) return;
+						if (blob.size > MAX_IMAGE_BYTES && i < qualities.length - 1) {
+							tryQuality(i + 1);
+							return;
+						}
+						const file = new File([blob], 'scan.jpg', { type: 'image/jpeg' });
+						close();
+						this.promptForNoteAndSend(file);
+					},
+					'image/jpeg',
+					qualities[i]
+				);
+			};
+			tryQuality(0);
+		});
+	}
+
+	/** Real port of agent.routes.ts's own /scan flow, adapted for this
+	 *  thin-plugin architecture — see api.py's scan_image() doc comment
+	 *  for the full server-side path. A plain frappe.call can't carry a
+	 *  binary file in its JSON args, so this is a raw fetch() with
+	 *  FormData instead, matching the standard Frappe convention for a
+	 *  whitelisted method that needs a real file upload (the CSRF token
+	 *  header is the one thing frappe.call would otherwise add for us).
+	 *  The user-visible bubble reads "[scanned image]" (+ note) rather
+	 *  than the real OCR'd text — same discipline as Pro's own chat
+	 *  history label for a scan turn, the actual extracted text still
+	 *  reaches the model, it's just not what's shown as "what you typed". */
+	sendImage(file, note) {
+		this.sending = true;
+		this.$sendBtn.prop('disabled', true);
+		this.addMessage('user', note ? `[${__('scanned image')}] ${note}` : `[${__('scanned image')}]`);
+		const $thinking = this.addMessage('assistant', __('Reading the image...'));
+
+		const formData = new FormData();
+		formData.append('image', file);
+		if (note) formData.append('note', note);
+		if (this.lastTurnId) formData.append('previous_turn_id', this.lastTurnId);
+
+		fetch('/api/method/noviz_ai.api.scan_image', {
+			method: 'POST',
+			headers: { 'X-Frappe-CSRF-Token': frappe.csrf_token },
+			body: formData,
+		})
+			.then(async (res) => {
+				if (!res.ok) {
+					const body = await res.json().catch(() => ({}));
+					throw new Error((body._server_messages && JSON.parse(JSON.parse(body._server_messages)[0]).message) || body.exception || __('Scan failed.'));
+				}
+				return res.json();
+			})
+			.then((data) => this._renderTurnResult($thinking, data.message))
+			.catch((err) => {
+				$thinking.html(frappe.markdown(err.message || __('Scan failed.')));
+			})
+			.finally(() => {
+				this.sending = false;
+				this.$sendBtn.prop('disabled', false);
+			});
 	}
 }
