@@ -12,9 +12,11 @@
   "agent_role",
   "policy_section",
   "policy_module_select",
-  "policy_column_break",
+  "policy_boxes_section",
   "policy_strict_text",
+  "policy_column_break",
   "policy_warning_text",
+  "module_policies_section",
   "module_policies"
  ],
  "fields": [
@@ -61,8 +63,8 @@
    "options": "Selling\nBuying\nAccounting\nHR / HRMS\nStock / Inventory\nManufacturing\nProjects\nQuality\nSupport\nAssets\nCRM"
   },
   {
-   "fieldname": "policy_column_break",
-   "fieldtype": "Column Break"
+   "fieldname": "policy_boxes_section",
+   "fieldtype": "Section Break"
   },
   {
    "description": "One policy per line, as many lines as you need. The agent must refuse the action and explain why if any line here is violated. Example: \"Never discount a first-time customer.\"",
@@ -71,10 +73,18 @@
    "label": "Strict (must refuse if violated)"
   },
   {
+   "fieldname": "policy_column_break",
+   "fieldtype": "Column Break"
+  },
+  {
    "description": "One policy per line, as many lines as you need. The agent still proceeds, but flags it clearly to the person. Example: \"Flag any leave request longer than 10 days.\"",
    "fieldname": "policy_warning_text",
    "fieldtype": "Text",
    "label": "Warning (proceed, but flag it)"
+  },
+  {
+   "fieldname": "module_policies_section",
+   "fieldtype": "Section Break"
   },
   {
    "description": "Your own company's business policy, separate from the standard rules the agent already follows for every customer. One row per module - the real record behind the dropdown/boxes above. Editable directly here too if you prefer the grid view.",

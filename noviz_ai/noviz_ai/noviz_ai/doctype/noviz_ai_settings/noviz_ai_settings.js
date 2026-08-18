@@ -24,8 +24,16 @@ frappe.ui.form.on("Noviz AI Settings", {
 			}
 		});
 
+		// Real bug found live via browser testing: frm.set_value() marks
+		// the whole form dirty ("Not Saved") — right, for a genuine edit,
+		// but this is purely re-displaying data that's already saved.
+		// Confirmed live: simply opening this page for the first time
+		// showed "Not Saved" with nothing actually changed. Setting
+		// frm.doc directly + refresh_field() shows the same value without
+		// flagging a change that was never made.
 		if (!frm.doc.policy_module_select && frm.doc.module_policies?.length) {
-			frm.set_value("policy_module_select", frm.doc.module_policies[0].module);
+			frm.doc.policy_module_select = frm.doc.module_policies[0].module;
+			frm.refresh_field("policy_module_select");
 		}
 		_load_selected_module_policy(frm);
 	},
@@ -53,10 +61,20 @@ function _find_selected_row(frm) {
 	return (frm.doc.module_policies || []).find((row) => row.module === module) || null;
 }
 
+/** Same non-dirtying pattern as refresh()'s own default-module-select
+ *  fix — this only ever re-displays a row's already-saved text, never a
+ *  real edit on its own, so it must never be what makes "Not Saved"
+ *  appear. Setting frm.doc directly (not frm.set_value) also means this
+ *  doesn't re-trigger the policy_strict_text/policy_warning_text change
+ *  handlers below — which would otherwise immediately write the exact
+ *  same values right back, a pointless (if harmless) redundant update
+ *  on every module switch. */
 function _load_selected_module_policy(frm) {
 	const row = _find_selected_row(frm);
-	frm.set_value("policy_strict_text", row?.strict_policy || "");
-	frm.set_value("policy_warning_text", row?.warning_policy || "");
+	frm.doc.policy_strict_text = row?.strict_policy || "";
+	frm.doc.policy_warning_text = row?.warning_policy || "";
+	frm.refresh_field("policy_strict_text");
+	frm.refresh_field("policy_warning_text");
 }
 
 function _write_selected_module_policy(frm) {
