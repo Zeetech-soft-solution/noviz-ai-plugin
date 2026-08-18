@@ -32,18 +32,23 @@ app_home = "/desk/noviz-ai-chat"
 # logic (create_desktop_icons_from_workspace()) automatically hides the
 # redundant Workspace-based tile once this one exists, since our single
 # Workspace happens to share its exact name with app_title ("Noviz AI").
-# No "logo" key: real, live-confirmed infra issue found on this deploy
-# — the frontend (nginx) container only has frappe/erpnext baked into
-# its own image; hrms and noviz_ai were installed live into the
-# backend container only, so ANY /assets/noviz_ai/... (or /assets/
-# hrms/...) file path 404s from nginx's side, confirmed even for
-# HRMS's own official logo (pre-existing, unrelated to this app).
-# Omitting "logo" isn't a workaround-hack — it's Frappe's own real,
-# intended fallback path (desktop_icon.html's final {% else %} branch
-# -> frappe.utils.desktop_icon()), the SAME colored-initial-letter
-# avatar already used for the Workspace's own sidebar entry — clean on
-# any deployment, not dependent on this one server's asset-serving
-# quirk being fixed.
+# No "logo" key here — tried a real data: URI (the actual Noviz AI mark,
+# see public/images/icon-master.svg) and confirmed live it's genuinely
+# NOT viable: Desktop Icon's own "logo_url" field is a plain Data
+# column, capped at 140 characters by Frappe's own standard Data-field
+# length — a base64-encoded image data: URI (thousands of characters)
+# throws a real CharacterLengthExceededError on save, confirmed live,
+# regardless of this deploy's separate broken-/assets/ issue. A real
+# image file (short URL, long bytes server-side) is the only shape that
+# actually fits this field — not something this thin, asset-serving-
+# broken deployment can offer today. Omitting "logo" falls through to
+# Frappe's own real, intended default (desktop_icon.html's final
+# {% else %} branch -> frappe.utils.desktop_icon()), the SAME
+# colored-initial-letter avatar already used for the Workspace's own
+# sidebar entry — clean on any deployment. The chat page's own header
+# logo (noviz_ai_chat.js) is NOT affected by this 140-char limit (it's
+# plain page JS, no DocType field involved) and DOES use the real
+# embedded image.
 add_to_apps_screen = [
 	{
 		"name": "noviz_ai",
