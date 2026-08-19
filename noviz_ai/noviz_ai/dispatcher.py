@@ -33,6 +33,25 @@ def execute_call_spec(spec: dict):
 		frappe.throw(f'Noviz AI: this plugin does not know how to execute call kind "{kind}" (only {sorted(SUPPORTED_KINDS)} are supported).')
 
 	if kind == "get_list":
+		# Real permission check, not implied by frappe.get_list() alone —
+		# same explicit discipline as get_doc's own check below, added for
+		# the same real reason: real bug found live 2026-08-19, a user with
+		# genuinely ZERO read permission on a doctype (Sales Order, for a
+		# System-Manager-only account with no functional role) got a real
+		# frappe.PermissionError from a plain .list call — correctly
+		# surfaced by api.py's own error-catching — but the SAME
+		# permission gap, reached through analytics.aggregate's own
+		# multi-page get_list calls, silently came back as an empty page
+		# (count 0) instead, because frappe.get_list() doesn't reliably
+		# throw for every real permission shape (some doctypes/roles
+		# resolve to a filtered-empty result instead of an outright deny).
+		# The model then reported "there are no accounts receivable" — a
+		# false claim about the DATA when the real problem was access, the
+		# exact failure SYSTEM_PROMPT's own "STATUS/ENUM FIELDS" section
+		# already warns against for a different cause. A real, explicit
+		# check here makes both paths behave identically and correctly.
+		if not frappe.has_permission(doctype, "read"):
+			frappe.throw(f"Noviz AI: you do not have permission to read {doctype} records.", frappe.PermissionError)
 		rows = frappe.get_list(
 			doctype,
 			fields=spec.get("fields") or ["name"],
