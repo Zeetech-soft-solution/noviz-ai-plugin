@@ -1,85 +1,68 @@
 // Copyright (c) 2026, Zeetech Soft Solution and contributors
 // For license information, please see license.txt
 
-// Real UX built per explicit request: editing 11 modules' worth of
-// multi-line policy text inside a child-table grid (tiny inline cells)
-// was genuinely unusable. The child table (module_policies) is still
-// the REAL data — one row per module, what actually gets synced to the
-// relay (api.py's sync_module_policies) — this is just a friendlier way
-// to edit it: pick a module from the dropdown, two big boxes show/edit
-// THAT module's own strict/warning text, switching the dropdown saves
-// whatever you typed back into the previously-selected module's real
-// row before loading the newly-picked one's.
+// Real UX simplification, per explicit request: the earlier design (a
+// separate module dropdown + two big boxes duplicating the grid's own
+// data) was reworked back down to ONE editing surface — the grid itself
+// (module_policies), edited inline, cell by cell. All 11 real modules are
+// pre-seeded on install (install.py's own _seed_module_policy_rows) and
+// the field is locked to that fixed set (_lock_module_policies_rows
+// below), so there is nothing to insert or delete — only ever editing an
+// already-existing row's own text.
+//
+// The one real gap plain Frappe grid styling leaves: a Small Text
+// column's STATIC (not-currently-being-edited) cell is Frappe's own
+// real ".static-area.ellipsis" — single line, truncated with "..." —
+// which would hide most of a real multi-line policy at a glance. This
+// overrides just that class, scoped to this one grid, so the real text
+// is readable without having to click into the cell first — a pure CSS
+// change, no data/behavior difference. (Also affects the Module column's
+// own static cell, harmlessly — those values are always a single short
+// word and never wrap regardless.)
 frappe.ui.form.on("Noviz AI Settings", {
 	refresh(frm) {
-		// Real, resizable, genuinely tall boxes — "unlimited rows,
-		// flexible" per explicit request. Frappe's own "Text" fieldtype
-		// textarea is resizable by default (native browser drag handle);
-		// this just starts it much taller than the default ~2 rows so a
-		// real multi-line policy doesn't start out looking cramped.
-		["policy_strict_text", "policy_warning_text"].forEach((fieldname) => {
-			const $textarea = frm.fields_dict[fieldname]?.$wrapper?.find("textarea");
-			if ($textarea?.length) {
-				$textarea.css({ "min-height": "220px", resize: "vertical" });
-			}
-		});
-
-		// Real bug found live via browser testing: frm.set_value() marks
-		// the whole form dirty ("Not Saved") — right, for a genuine edit,
-		// but this is purely re-displaying data that's already saved.
-		// Confirmed live: simply opening this page for the first time
-		// showed "Not Saved" with nothing actually changed. Setting
-		// frm.doc directly + refresh_field() shows the same value without
-		// flagging a change that was never made.
-		if (!frm.doc.policy_module_select && frm.doc.module_policies?.length) {
-			frm.doc.policy_module_select = frm.doc.module_policies[0].module;
-			frm.refresh_field("policy_module_select");
-		}
-		_load_selected_module_policy(frm);
-	},
-
-	policy_module_select(frm) {
-		_load_selected_module_policy(frm);
-	},
-
-	// Debounced writes on every keystroke would create a huge number of
-	// child-row updates for no reason — writing back on blur (leaving
-	// the field) is the real moment the person is "done with this box
-	// for now", same moment a switch to another module or an actual
-	// form Save would also need the current text captured.
-	policy_strict_text(frm) {
-		_write_selected_module_policy(frm);
-	},
-	policy_warning_text(frm) {
-		_write_selected_module_policy(frm);
+		_widen_policy_columns(frm);
+		_lock_module_policies_rows(frm);
 	},
 });
 
-function _find_selected_row(frm) {
-	const module = frm.doc.policy_module_select;
-	if (!module) return null;
-	return (frm.doc.module_policies || []).find((row) => row.module === module) || null;
+// Real bug found live: "cannot_add_rows"/"cannot_delete_rows" set in the
+// DocType JSON are silently DROPPED — DocField's own real database
+// schema has no column for either property, so bench migrate's sync
+// step never persists them (confirmed live: a direct DocField query for
+// either name fails with "Field not permitted in query", meaning the
+// column genuinely doesn't exist). grid.js's own real client-side check
+// (frappe/public/js/frappe/form/grid.js) ALSO accepts a plain runtime
+// property directly on the grid object itself — that path works, this
+// sets it there instead. All 11 real modules are pre-seeded on install
+// (install.py's _seed_module_policy_rows) and this doctype has no create
+// permission on the child rows beyond that seed, so locking the row set
+// here matches what was already true underneath — just removes the
+// "Add Row"/per-row delete affordances that implied otherwise.
+function _lock_module_policies_rows(frm) {
+	const grid = frm.fields_dict.module_policies?.grid;
+	if (!grid) return;
+	grid.cannot_add_rows = true;
+	grid.cannot_delete_rows = true;
+	grid.refresh();
 }
 
-/** Same non-dirtying pattern as refresh()'s own default-module-select
- *  fix — this only ever re-displays a row's already-saved text, never a
- *  real edit on its own, so it must never be what makes "Not Saved"
- *  appear. Setting frm.doc directly (not frm.set_value) also means this
- *  doesn't re-trigger the policy_strict_text/policy_warning_text change
- *  handlers below — which would otherwise immediately write the exact
- *  same values right back, a pointless (if harmless) redundant update
- *  on every module switch. */
-function _load_selected_module_policy(frm) {
-	const row = _find_selected_row(frm);
-	frm.doc.policy_strict_text = row?.strict_policy || "";
-	frm.doc.policy_warning_text = row?.warning_policy || "";
-	frm.refresh_field("policy_strict_text");
-	frm.refresh_field("policy_warning_text");
-}
-
-function _write_selected_module_policy(frm) {
-	const row = _find_selected_row(frm);
-	if (!row) return;
-	frappe.model.set_value(row.doctype, row.name, "strict_policy", frm.doc.policy_strict_text || "");
-	frappe.model.set_value(row.doctype, row.name, "warning_policy", frm.doc.policy_warning_text || "");
+function _widen_policy_columns(frm) {
+	if (document.getElementById("noviz-ai-policy-grid-style")) return;
+	const style = document.createElement("style");
+	style.id = "noviz-ai-policy-grid-style";
+	style.textContent = `
+		.frappe-control[data-fieldname="module_policies"] .static-area.ellipsis {
+			white-space: normal !important;
+			text-overflow: unset !important;
+			overflow: visible !important;
+			line-height: 1.4;
+			max-height: 6em;
+			overflow-y: auto !important;
+		}
+		.frappe-control[data-fieldname="module_policies"] .grid-row {
+			min-height: 2.6em;
+		}
+	`;
+	document.head.appendChild(style);
 }

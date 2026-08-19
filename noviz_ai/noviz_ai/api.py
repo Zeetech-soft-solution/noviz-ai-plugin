@@ -136,6 +136,41 @@ def sync_module_policies(settings=None):
 		frappe.log_error(title="Noviz AI: policy sync failed", message=str(e))
 
 
+def _execute_call_spec_safely(call_spec):
+	"""Real ERPNext document calls fail for real, EXPECTED reasons — a
+	record deleted since the model last saw it, a permission this
+	specific logged-in person genuinely doesn't have, a validation a
+	create/update genuinely violates (a duplicate, a missing mandatory
+	field). Real bug found live: these used to propagate straight up as
+	an unhandled exception out of execute_call_spec, which crashed the
+	WHOLE chat request with a raw Frappe error dialog — the person got no
+	answer at all, not even an explanation. Catching the real, NAMED
+	ERPNext exception types here and handing back the same {"error": ...}
+	shape the relay's own rejection paths already use (a bad tool name, a
+	failed translation) lets the model see the real failure and explain
+	it naturally in the conversation instead — "that record doesn't seem
+	to exist anymore" rather than a crashed request. ValidationError's own
+	real subclasses (MandatoryError, DuplicateEntryError,
+	UniqueValidationError, ...) are all caught by the one ValidationError
+	branch, not enumerated separately — that's the actual Frappe exception
+	hierarchy, not guessed. A genuinely unexpected failure (not one of
+	these three real, named types) still gets logged for real
+	investigation (frappe.log_error) — this only ever changes what the
+	CHAT sees, never silently hides a bug from the site's own error log.
+	"""
+	try:
+		return execute_call_spec(call_spec)
+	except frappe.PermissionError as e:
+		return {"error": f"You don't have permission to do that in ERPNext: {e}"}
+	except frappe.DoesNotExistError as e:
+		return {"error": f"That record doesn't exist in ERPNext (it may have been deleted or renamed): {e}"}
+	except frappe.ValidationError as e:
+		return {"error": f"ERPNext rejected that: {e}"}
+	except Exception as e:
+		frappe.log_error(title="Noviz AI: unexpected error executing a call spec", message=frappe.get_traceback())
+		return {"error": f"Something unexpected went wrong on the ERPNext side ({type(e).__name__}) — this has been logged for the administrator."}
+
+
 def _drive_fetch_continue_loop(result, base_url, headers, session):
 	"""Shared by send_message and scan_image — both start a turn one
 	different way (a typed prompt vs a scanned image), but from here on
@@ -153,11 +188,10 @@ def _drive_fetch_continue_loop(result, base_url, headers, session):
 
 		call_spec = result["request"]
 		# The ONLY place this app ever touches real ERPNext data — see
-		# dispatcher.py's own doc comment. Whatever error it raises
-		# (a bad doctype, a permission the current user genuinely
-		# doesn't have) propagates straight up as a real frappe error,
-		# same as any other whitelisted method — no swallowing.
-		data = execute_call_spec(call_spec)
+		# dispatcher.py's own doc comment. See _execute_call_spec_safely's
+		# own doc comment for why real ERPNext errors are caught here
+		# rather than left to crash the whole request.
+		data = _execute_call_spec_safely(call_spec)
 
 		result = _post(f"{base_url}/v1/agent/turn/continue", {"turnId": result["turnId"], "result": data}, headers, session)
 
