@@ -8,7 +8,9 @@ requires-python = ">=3.10"
 readme = "README.md"
 dynamic = ["version"]
 dependencies = [
-    # "frappe~=16.0.0" # Installed and managed by bench.
+    # frappe is installed and managed by bench — see
+    # [tool.bench.frappe-dependencies] below for the real, functional
+    # version declaration Frappe Cloud actually reads.
 ]
 
 [build-system]
@@ -18,9 +20,14 @@ build-backend = "flit_core.buildapi"
 # These dependencies are only installed when developer mode is enabled
 [tool.bench.dev-dependencies]
 
+# Real Frappe Cloud requirement (docs.frappe.io/cloud/benches/custom-app) —
+# declares which Frappe versions this app supports. Confirmed via a real
+# bench get-app + bench install-app test on both Frappe 15.118.0 and
+# Frappe 16.29.0/16.30.0 (2026-08-21) — this app installs cleanly and
+# works on both, so the range covers both major versions rather than
+# pinning to just one.
 [tool.bench.frappe-dependencies]
-frappe = ">=16.0.0-dev,<17.0.0"
-
+frappe = ">=15.0.0,<17.0.0"
 
 # These apt dependencies will be installed from Ubuntu repositories when you host your app on Frappe Cloud
 [deploy.dependencies.apt]
