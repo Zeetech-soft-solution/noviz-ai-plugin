@@ -186,14 +186,21 @@ def execute_call_spec(spec: dict):
 		return {f: full.get(f) for f in fields}
 
 	if kind == "reply_communication":
-		# Sends a REAL reply email — reuses Frappe's own real, whitelisted
-		# frappe.core.doctype.communication.email.make(), the exact function
-		# ERPNext's own desk "Reply" button calls. Deliberately NOT a raw
-		# Communication insert() (would leave a record that LOOKS like an
-		# email but was never actually sent through SMTP) and NOT a
-		# hand-assembled frappe.sendmail() (make() already handles real
-		# threading via in_reply_to, and optional PDF-attachment-by-
-		# print-format, correctly).
+		# Sends a REAL reply email — 2026-08-22: switched from Frappe's own
+		# frappe.core.doctype.communication.email.make() (which sends through
+		# whatever Email Account is configured in Frappe) to our own
+		# email_sender.py (email_reader.py's send-side counterpart, same
+		# dedicated Noviz AI Settings SMTP fields as list_inbox_emails/
+		# send_reply_email use) — explicit product decision: this plugin
+		# should never depend on Frappe's own email configuration for
+		# anything, full stop, regardless of what a given site happens to
+		# have set there. Still creates a real local Communication record
+		# afterward (a plain insert(), no send_email flag — the actual
+		# sending already happened above) so the reply keeps showing up on
+		# the linked document's own timeline, same real value the old path
+		# had; only the SMTP transport changed. PDF-attachment-by-print-
+		# format (make()'s own optional feature) is not carried over here —
+		# a real, separate follow-up if ever needed.
 		name = spec.get("name")
 		if not name:
 			frappe.throw('Noviz AI: a "reply_communication" call spec requires a "name" (the original Communication id) — cannot execute it.')
@@ -203,48 +210,50 @@ def execute_call_spec(spec: dict):
 			frappe.throw('Noviz AI: a "reply_communication" call spec requires "values.reply_body" — cannot execute it.')
 
 		original = frappe.get_doc("Communication", name)
-		# Real permission check on the ORIGINAL email — separate from, and
-		# in addition to, the permission check make() itself runs below
-		# against whatever document the thread is linked to (a different,
-		# real "email" ptype check, not implied by construction alone).
+		# Real permission check on the ORIGINAL email — this plugin's own
+		# gate now that the send no longer routes through make()'s own
+		# internal permission check.
 		if not original.has_permission("read"):
 			frappe.throw("Noviz AI: you do not have permission to read this email.", frappe.PermissionError)
 
-		from frappe.core.doctype.communication.email import make as make_communication
+		from noviz_ai.email_sender import send_reply
 
 		subject = original.subject or ""
 		if not subject.lower().startswith("re:"):
 			subject = f"Re: {subject}"
 
-		kwargs = dict(
-			doctype=original.reference_doctype or None,
-			name=original.reference_name or None,
-			content=reply_body,
-			subject=subject,
-			recipients=original.sender,
-			communication_medium="Email",
-			send_email=1,
-			in_reply_to=original.name,
-		)
-		print_format = values.get("attach_print_format")
-		if print_format and original.reference_doctype and original.reference_name:
-			kwargs["print_format"] = print_format
-		result = make_communication(**kwargs)
-		# Real SMTP send already happened by this point (send_email=1 above)
-		# — an irreversible external action. Committing explicitly makes sure
-		# the local Communication record survives even if something later in
-		# this same request throws; without it, Frappe's own error-path
-		# rollback would silently erase the only local record of a real
-		# email that already left the building.
+		send_reply(original.sender, subject, reply_body)
+
+		settings = frappe.get_single("Noviz AI Settings")
+		reply_doc = frappe.get_doc({
+			"doctype": "Communication",
+			"communication_type": "Communication",
+			"communication_medium": "Email",
+			"sent_or_received": "Sent",
+			"reference_doctype": original.reference_doctype or None,
+			"reference_name": original.reference_name or None,
+			"subject": subject,
+			"content": reply_body,
+			"sender": settings.email_username,
+			"recipients": original.sender,
+			"in_reply_to": original.name,
+		})
+		reply_doc.insert()
+		# The reply email already left the building via our own SMTP by this
+		# point — an irreversible external action. Committing explicitly
+		# makes sure the local Communication record survives even if
+		# something later in this same request throws; without it, Frappe's
+		# own error-path rollback would silently erase the only local record
+		# of a real email that already sent.
 		frappe.db.commit()  # nosemgrep: frappe-manual-commit
-		return _json_safe(result)
+		return _json_safe(reply_doc.as_dict())
 
 	if kind == "send_communication":
 		# A genuinely FRESH outbound email — no existing Communication
 		# thread to reply to (that's reply_communication's own job above).
-		# Same real make() function, same real SMTP send, just no
-		# in_reply_to/original thread involved. No linked-document/PDF-
-		# attachment support yet (a real, separate follow-up).
+		# Same 2026-08-22 switch to our own SMTP (email_sender.py) instead
+		# of Frappe's configured Email Account, same reasoning. No linked-
+		# document/PDF-attachment support — a real, separate follow-up.
 		values = spec.get("values") or {}
 		recipients = values.get("recipients")
 		subject = values.get("subject")
@@ -252,20 +261,27 @@ def execute_call_spec(spec: dict):
 		if not recipients or not subject or not content:
 			frappe.throw('Noviz AI: a "send_communication" call spec requires values.recipients, values.subject, and values.content — cannot execute it.')
 
-		from frappe.core.doctype.communication.email import make as make_communication
+		from noviz_ai.email_sender import send_reply
 
-		result = make_communication(
-			content=content,
-			subject=subject,
-			recipients=recipients,
-			communication_medium="Email",
-			send_email=1,
-		)
-		# Same real reason as reply_communication above: the SMTP send
-		# already happened, so the local record of it must not be at the
-		# mercy of whatever runs next in this same request.
+		send_reply(recipients, subject, content)
+
+		settings = frappe.get_single("Noviz AI Settings")
+		sent_doc = frappe.get_doc({
+			"doctype": "Communication",
+			"communication_type": "Communication",
+			"communication_medium": "Email",
+			"sent_or_received": "Sent",
+			"subject": subject,
+			"content": content,
+			"sender": settings.email_username,
+			"recipients": recipients,
+		})
+		sent_doc.insert()
+		# Same real reason as reply_communication above: the send already
+		# happened, so the local record of it must not be at the mercy of
+		# whatever runs next in this same request.
 		frappe.db.commit()  # nosemgrep: frappe-manual-commit
-		return _json_safe(result)
+		return _json_safe(sent_doc.as_dict())
 
 	if kind == "mark_notification_read":
 		# Reuses Frappe's own real, privileged mark_as_read() — Notification
