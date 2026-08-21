@@ -115,19 +115,28 @@ def _add_desktop_icon():
 	# files, generated once at that module's own creation time. A
 	# Workspace created after the fact (ours) has no such fixture.
 	#
-	# frappe.utils.install.auto_generate_icons_and_sidebar() is the EXACT
-	# real function frappe's own "after_app_install" hook calls for every
-	# single app on every fresh install (frappe/hooks.py's own
-	# after_app_install) — not a hand-rolled equivalent. It builds BOTH
-	# the real Workspace Sidebar for our "Noviz AI" workspace AND every
-	# Desktop Icon this app's hooks.py declares — including the
-	# add_to_apps_screen-driven "App"-type tile (see hooks.py's own doc
-	# comment) that goes straight to the chat page, one click, matching
-	# hrms's own "Frappe HR" tile design. Its own dedup logic
-	# automatically hides the redundant Workspace-based tile once the App
-	# one exists, since our one Workspace shares its name with app_title.
-	# Idempotent — safe to call again on a reinstall/migrate.
-	from frappe.utils.install import auto_generate_icons_and_sidebar
+	# frappe.utils.install.auto_generate_icons_and_sidebar() is the exact
+	# function frappe's own "after_app_install" hook calls for every app
+	# on every fresh install (frappe/hooks.py's own after_app_install) —
+	# not a hand-rolled equivalent. It builds both the Workspace Sidebar
+	# for our "Noviz AI" workspace and every Desktop Icon this app's
+	# hooks.py declares — including the add_to_apps_screen-driven "App"-
+	# type tile (see hooks.py's own doc comment) that goes straight to
+	# the chat page, one click, matching hrms's own "Frappe HR" tile
+	# design. Its own dedup logic automatically hides the redundant
+	# Workspace-based tile once the App one exists, since our one
+	# Workspace shares its name with app_title. Idempotent — safe to
+	# call again on a reinstall/migrate.
+	#
+	# Confirmed via live testing this function does not exist on Frappe
+	# v15 (only v16+) — skip gracefully there rather than fail the whole
+	# install over a cosmetic step. The desktop icon/sidebar just won't
+	# auto-generate on v15; every other real setup step still completes.
+	try:
+		from frappe.utils.install import auto_generate_icons_and_sidebar
+	except ImportError:
+		frappe.log_error(title="Noviz AI: auto_generate_icons_and_sidebar not available on this Frappe version")
+		return
 
 	auto_generate_icons_and_sidebar(app_name="noviz_ai")
 
@@ -155,7 +164,13 @@ def _add_sidebar_links():
 	# AI Chat"/"Noviz AI Settings" shortcut cards) as real sidebar
 	# links too - matching how Selling's own sidebar ALSO duplicates
 	# what's on its workspace body, not a new pattern invented here.
-	# Idempotent - checks each item's own label before appending.
+	# Idempotent - checks each item's own label before appending. This
+	# record only exists if _add_desktop_icon() above successfully ran
+	# auto_generate_icons_and_sidebar() (Frappe v16+ only, confirmed via
+	# live testing) — skip gracefully on older versions where it was
+	# never created, rather than fail the whole install.
+	if not frappe.db.exists("Workspace Sidebar", "Noviz AI"):
+		return
 	sidebar = frappe.get_doc("Workspace Sidebar", "Noviz AI")
 	existing_labels = {item.label for item in sidebar.items}
 	changed = False
