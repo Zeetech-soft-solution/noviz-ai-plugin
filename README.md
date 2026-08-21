@@ -4,13 +4,7 @@ Open-source Frappe/ERPNext integration plugin for Noviz AI. The plugin acts as a
 
 ### Installation
 
-You can install this app using the [bench](https://github.com/frappe/bench) CLI:
-
-```bash
-cd $PATH_TO_YOUR_BENCH
-bench get-app $URL_OF_THIS_REPO --branch main
-bench install-app noviz_ai
-```
+See the [installation guide](https://noviz.in/docs.html) for setup steps.
 
 ### Contributing
 

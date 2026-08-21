@@ -230,7 +230,13 @@ def execute_call_spec(spec: dict):
 		if print_format and original.reference_doctype and original.reference_name:
 			kwargs["print_format"] = print_format
 		result = make_communication(**kwargs)
-		frappe.db.commit()
+		# Real SMTP send already happened by this point (send_email=1 above)
+		# — an irreversible external action. Committing explicitly makes sure
+		# the local Communication record survives even if something later in
+		# this same request throws; without it, Frappe's own error-path
+		# rollback would silently erase the only local record of a real
+		# email that already left the building.
+		frappe.db.commit()  # nosemgrep: frappe-manual-commit
 		return _json_safe(result)
 
 	if kind == "send_communication":
@@ -255,7 +261,10 @@ def execute_call_spec(spec: dict):
 			communication_medium="Email",
 			send_email=1,
 		)
-		frappe.db.commit()
+		# Same real reason as reply_communication above: the SMTP send
+		# already happened, so the local record of it must not be at the
+		# mercy of whatever runs next in this same request.
+		frappe.db.commit()  # nosemgrep: frappe-manual-commit
 		return _json_safe(result)
 
 	if kind == "mark_notification_read":
@@ -271,7 +280,11 @@ def execute_call_spec(spec: dict):
 		from frappe.desk.doctype.notification_log.notification_log import mark_as_read
 
 		mark_as_read(name)
-		frappe.db.commit()
+		# Real user-facing state (an unread badge count) — committing
+		# immediately means it can't get silently undone by an unrelated
+		# later failure in this same request, same reasoning as the write
+		# path below, just for a smaller, purely-local mutation.
+		frappe.db.commit()  # nosemgrep: frappe-manual-commit
 		return {"ok": True, "id": name}
 
 	# kind == "create_doc" / "update_doc" — the plugin's own real write
@@ -293,7 +306,13 @@ def execute_call_spec(spec: dict):
 	if kind == "create_doc":
 		doc = frappe.get_doc({"doctype": doctype, **values})
 		doc.insert()
-		frappe.db.commit()
+		# The document genuinely exists in ERPNext the moment insert()
+		# returns (real hooks/side effects may already have fired off of
+		# it). Committing here decouples "the write happened" from "the
+		# response serialized cleanly" — a failure in _json_safe() below
+		# must never silently roll back a document the person was just
+		# told, or is about to be told, was created.
+		frappe.db.commit()  # nosemgrep: frappe-manual-commit
 		return _json_safe(doc.as_dict())
 
 	# kind == "update_doc"
@@ -305,5 +324,8 @@ def execute_call_spec(spec: dict):
 		frappe.throw(f'Noviz AI: you do not have permission to update this {doctype} record.', frappe.PermissionError)
 	doc.update(values)
 	doc.save()
-	frappe.db.commit()
+	# Same reasoning as create_doc above — the update already landed once
+	# save() returns; committing here keeps that fact independent of
+	# whatever the response-serialization step below does afterward.
+	frappe.db.commit()  # nosemgrep: frappe-manual-commit
 	return _json_safe(doc.as_dict())
