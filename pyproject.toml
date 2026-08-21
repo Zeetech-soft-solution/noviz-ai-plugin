@@ -23,12 +23,11 @@ build-backend = "flit_core.buildapi"
 # Real Frappe Cloud requirement (docs.frappe.io/cloud/benches/custom-app) —
 # declares which Frappe versions this app supports. v15 and v16 are
 # confirmed via a real bench get-app + bench install-app test (2026-08-21,
-# Frappe 15.118.0 and 16.29.0/16.30.0). v13/v14 are included in the range
-# below but have NOT been tested against — widened on explicit request
-# before verification, same real risk class as the structural bugs found
-# and fixed testing v15/v16 today.
+# Frappe 15.118.0 and 16.29.0/16.30.0) — the range is scoped to just
+# these two, tested, versions rather than claiming compatibility with
+# anything unverified.
 [tool.bench.frappe-dependencies]
-frappe = ">=13.0.0,<17.0.0"
+frappe = ">=15.0.0,<17.0.0"
 
 # These apt dependencies will be installed from Ubuntu repositories when you host your app on Frappe Cloud
 [deploy.dependencies.apt]
