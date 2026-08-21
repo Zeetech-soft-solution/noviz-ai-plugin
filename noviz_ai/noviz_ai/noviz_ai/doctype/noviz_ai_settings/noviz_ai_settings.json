@@ -6,49 +6,88 @@
  "doctype": "DocType",
  "engine": "InnoDB",
  "field_order": [
-  "enabled",
   "relay_base_url",
   "api_key",
-  "agent_role",
+  "user_email",
+  "email_section",
+  "email_host",
+  "email_port",
+  "smtp_host",
+  "smtp_port",
+  "email_column_break",
+  "email_username",
+  "email_password",
   "policy_section",
   "module_policies"
  ],
  "fields": [
   {
-   "default": "0",
-   "description": "Turns the Noviz AI chat page on/off for this site without removing the configuration.",
-   "fieldname": "enabled",
-   "fieldtype": "Check",
-   "label": "Enabled"
-  },
-  {
-   "description": "The Noviz AI central server this site talks to, e.g. https://noviz.in",
    "fieldname": "relay_base_url",
    "fieldtype": "Data",
    "in_list_view": 1,
    "label": "Relay Base URL",
+   "read_only": 1,
    "reqd": 1
   },
   {
-   "description": "Issued once by Noviz AI at signup. Identifies THIS site as a tenant to the central relay - it is never used to access ERPNext data, only to authenticate this site's own requests to the relay API. Stored encrypted (Frappe's own Password fieldtype).",
+   "description": "<a href=\"https://noviz.in/pricing.html\" target=\"_blank\" rel=\"noopener\">Get Relay API Key</a>",
    "fieldname": "api_key",
    "fieldtype": "Password",
    "in_list_view": 1,
-   "label": "Tenant API Key",
-   "reqd": 1
+   "label": "AI Relay Token API Key"
   },
   {
-   "description": "The scoped role real users must have to use the Noviz AI chat page. Created automatically on install - see hooks.py after_install.",
-   "fieldname": "agent_role",
-   "fieldtype": "Link",
-   "label": "Agent Role",
-   "options": "Role"
+   "fieldname": "user_email",
+   "fieldtype": "Data",
+   "label": "User Email",
+   "options": "Email"
+  },
+  {
+   "fieldname": "email_section",
+   "fieldtype": "Section Break",
+   "label": "Email Inbox"
+  },
+  {
+   "fieldname": "email_host",
+   "fieldtype": "Data",
+   "label": "IMAP Host"
+  },
+  {
+   "fieldname": "email_port",
+   "fieldtype": "Int",
+   "label": "IMAP Port",
+   "default": "993"
+  },
+  {
+   "fieldname": "smtp_host",
+   "fieldtype": "Data",
+   "label": "SMTP Host"
+  },
+  {
+   "fieldname": "smtp_port",
+   "fieldtype": "Int",
+   "label": "SMTP Port",
+   "default": "465"
+  },
+  {
+   "fieldname": "email_column_break",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "email_username",
+   "fieldtype": "Data",
+   "label": "Email Username"
+  },
+  {
+   "fieldname": "email_password",
+   "fieldtype": "Password",
+   "label": "Email Password"
   },
   {
    "fieldname": "policy_section",
    "fieldtype": "Section Break",
    "label": "Company Policy",
-   "description": "Your own company's business policy, separate from the standard rules the agent already follows for every customer. Click directly into a cell below to edit it — one fixed row per module, nothing to add or remove."
+   "description": "Your own company's business policy, separate from the standard rules the agent already follows for every customer."
   },
   {
    "fieldname": "module_policies",

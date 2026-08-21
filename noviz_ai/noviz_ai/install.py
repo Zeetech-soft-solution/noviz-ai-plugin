@@ -3,6 +3,7 @@
 # should never need to manually patch permissions by hand the way this
 # was first found and fixed while building it.
 import frappe
+import requests
 
 
 def after_install():
@@ -11,7 +12,9 @@ def after_install():
 	_grant_settings_doctype_permission()
 	_add_desktop_icon()
 	_add_sidebar_links()
+	_set_default_relay_url()
 	_seed_module_policy_rows()
+	_report_install_to_platform()
 
 
 def _create_agent_role():
@@ -193,33 +196,16 @@ def _add_sidebar_links():
 		)
 		changed = True
 
-	# Real "Email" destination — NOT a Noviz AI feature of our own,
-	# points straight at Frappe's own real, standard "Email Account"
-	# doctype (confirmed live it exists; a real "Email" Workspace does
-	# NOT exist on this site despite one real Desktop Icon record
-	# referencing it — a dangling reference, same class of gap as the
-	# "Frappe HR" tile investigated earlier this session, not something
-	# to chase further here). Setting up a real inbox (POP3/SMTP)
-	# happens on Frappe's own genuine "Email Account" form once someone
-	# navigates here — this plugin (and this assistant) never touches
-	# or stores that credential itself; entering it is a real, separate,
-	# manual step the site's own admin does directly in ERPNext's own UI.
-	if "Email" not in existing_labels:
-		sidebar.append(
-			"items",
-			{
-				"type": "Link",
-				"label": "Email",
-				"link_type": "DocType",
-				"link_to": "Email Account",
-				"icon": "mail",
-				"indent": 0,
-				"collapsible": 1,
-				"keep_closed": 0,
-				"show_arrow": 0,
-				"child": 0,
-			},
-		)
+	# This sidebar entry used to point straight at Frappe's own "Email
+	# Account" doctype (the POP3/SMTP config screen). Now that email is a
+	# live agent capability of its own (email_reader.py/email_sender.py,
+	# with its own dedicated fields on Noviz AI Settings, independent of
+	# Frappe's Email Account/Communication machinery), a sidebar link to
+	# Frappe's own account settings would just be confusing — the real
+	# place to configure this now is Noviz AI Settings itself, already
+	# linked below.
+	if "Email" in existing_labels:
+		sidebar.items = [item for item in sidebar.items if item.label != "Email"]
 		changed = True
 
 	# Real support contact, not built as a business feature of this
@@ -254,19 +240,90 @@ def _add_sidebar_links():
 		frappe.clear_cache()
 
 
+def _set_default_relay_url():
+	# A fresh install's Relay Base URL field starts blank (it's `reqd`,
+	# but nothing seeds it — see noviz_ai_settings.json), so an admin had
+	# to already know the exact API path to fill it in correctly.
+	# Idempotent — only ever sets it when still blank, so a site that
+	# already has its own real value configured is never touched or
+	# overwritten.
+	#
+	# A genuinely fresh install also has no AI Relay Token yet — by
+	# design, this app can be installed before a token is purchased — so
+	# a plain settings.save() here used to crash the whole after_install()
+	# chain with a MandatoryError, since api_key was still marked reqd at
+	# the same time this ran. api_key itself is no longer reqd (the root
+	# fix), but ignore_mandatory is set here too as cheap defensive
+	# insurance against the same class of crash if any other field on
+	# this doctype is ever made mandatory later — an install-time system
+	# save should never be able to break over a field it isn't touching.
+	settings = frappe.get_single("Noviz AI Settings")
+	if settings.relay_base_url:
+		return
+	settings.relay_base_url = "https://noviz.in/platform-api"
+	settings.flags.ignore_mandatory = True
+	settings.save(ignore_permissions=True)
+
+
 def _seed_module_policy_rows():
-	# Real, explicit product ask: "each module we have including hrms" -
-	# a real admin opening Settings for the first time should see every
-	# real module already listed with two blank boxes to fill in, not an
-	# empty child table they'd have to know to add ten rows to
-	# themselves one at a time. Idempotent - only seeds when the table
-	# is genuinely empty (a site that already has real rows, from a
-	# reinstall or an admin who already started filling this in, is
-	# never touched).
+	# An admin opening Settings for the first time should see every
+	# module already listed with two blank boxes to fill in, not an
+	# empty child table they'd have to populate one row at a time.
+	# Idempotent — only seeds when the table is genuinely empty (a site
+	# that already has real rows, from a reinstall or an admin who
+	# already started filling this in, is never touched).
 	settings = frappe.get_single("Noviz AI Settings")
 	if settings.module_policies:
 		return
-	for module in ["Selling", "Buying", "Accounting", "HR / HRMS", "Stock / Inventory",
-			"Manufacturing", "Projects", "Quality", "Support", "Assets", "CRM"]:
+	# "Common" is listed first — it's the one row that applies regardless
+	# of module, deliberately not alphabetized in with the business
+	# modules below it. "Utilities" covers the calculator/chart/email/
+	# notification module, which doesn't fit any other named module.
+	for module in ["Common (applies to every module)",
+			"Selling", "Buying", "Accounting", "HR / HRMS", "Stock / Inventory",
+			"Manufacturing", "Projects", "Quality", "Support", "Assets", "CRM",
+			"Utilities (calculator, charts, email, notifications)"]:
 		settings.append("module_policies", {"module": module, "strict_policy": "", "warning_policy": ""})
+	# Same defensive reasoning as _set_default_relay_url's own doc comment
+	# right above - an install-time system save must never be blockable
+	# by an unrelated field (api_key) still being genuinely, by-design,
+	# blank at this point.
+	settings.flags.ignore_mandatory = True
 	settings.save(ignore_permissions=True)
+
+
+def _report_install_to_platform():
+	# Reports that this site installed the app — a lead signal for
+	# support to follow up on, nothing more. Never blocks or fails the
+	# install over this: a sandboxed environment with no outbound
+	# internet, or the platform being briefly unreachable, must still
+	# leave every grant/icon/sidebar step above intact. This is the one
+	# optional, best-effort step in after_install(), so it runs last and
+	# swallows its own exceptions rather than letting one bubble up (the
+	# steps before it are real setup steps that should fail loudly).
+	#
+	# Reads directly from ERPNext's own Company doctype (name, phone,
+	# email, country) — never a value this plugin invented or asked the
+	# user to type in separately. Posts to a fixed platform URL, not
+	# Noviz AI Settings' own relay_base_url — Settings is normally still
+	# unconfigured at the moment this runs (install happens before a
+	# token has been entered), so there's no per-tenant config to read
+	# yet. This is the one place in the plugin that talks to a hardcoded
+	# Noviz AI address, the same production domain already used for the
+	# "get your API key" link in api.py.
+	try:
+		company_name = frappe.db.get_default("company") or frappe.db.get_value("Company", {}, "name")
+		company = frappe.get_doc("Company", company_name) if company_name else None
+		requests.post(
+			"https://noviz.in/platform-api/install-lead",
+			json={
+				"siteUrl": frappe.utils.get_url(),
+				"companyName": company.company_name if company else None,
+				"phone": company.phone_no if company else None,
+				"email": company.email if company else None,
+				"country": company.country if company else None,
+			},
+			timeout=10,
+		)
+	except Exception:
+		frappe.log_error(title="Noviz AI install-lead report failed (non-blocking)")

@@ -10,7 +10,7 @@ import json
 
 import frappe
 
-SUPPORTED_KINDS = {"get_list", "get_doc", "create_doc", "update_doc", "reply_communication", "mark_notification_read"}
+SUPPORTED_KINDS = {"get_list", "get_doc", "create_doc", "update_doc", "reply_communication", "send_communication", "mark_notification_read", "run_report", "list_inbox_emails", "send_reply_email"}
 
 
 def _json_safe(value):
@@ -24,13 +24,99 @@ def _json_safe(value):
 	return json.loads(frappe.as_json(value))
 
 
+def _normalize_report_result(message: dict):
+	# Mirrors erpnextConnector.ts's own normalizeReportResult() exactly —
+	# ERPNext's real report output shape varies by report type/version:
+	# `result` is sometimes already a list of dicts, sometimes a list of
+	# plain row-arrays that need zipping against `columns` (which is
+	# itself sometimes a list of plain strings like "customer:Link/
+	# Customer:120", sometimes a list of {fieldname, label, ...} dicts).
+	# Kept as its own real Python port (not a second HTTP round trip back
+	# through the relay) since this runs directly against ERPNext's own
+	# in-process report result — no reason to serialize it twice.
+	if not message or not isinstance(message.get("result"), list):
+		return []
+	result = message["result"]
+	columns = message.get("columns") or []
+	if result and not isinstance(result[0], list):
+		return result  # already a list of dicts
+	keys = []
+	for c in columns:
+		if isinstance(c, str):
+			keys.append(c.split(":")[0])
+		elif isinstance(c, dict):
+			keys.append(c.get("fieldname") or c.get("label") or "value")
+		else:
+			keys.append("value")
+	rows = []
+	for row in result:
+		rows.append({keys[i]: row[i] for i in range(min(len(keys), len(row)))})
+	return rows
+
+
 def execute_call_spec(spec: dict):
 	kind = spec.get("kind")
+	if kind not in SUPPORTED_KINDS:
+		frappe.throw(f'Noviz AI: this plugin does not know how to execute call kind "{kind}" (only {sorted(SUPPORTED_KINDS)} are supported).')
+
+	if kind == "run_report":
+		# A real ERPNext named report (General Ledger, Profit and Loss,
+		# Stock Balance, ...) — report_name is the report's own real
+		# ERPNext name (see reportMap.ts's own ERPNEXT_REPORT_MAP,
+		# central's real reportKey -> reportName translation), filters is
+		# ERPNext's own native filter dict for that specific report, NOT
+		# a [field, op, value] triple array like get_list uses (a real,
+		# report-specific shape — every ERPNext report defines its own
+		# filter fieldnames in its own .py/.js, there is no one generic
+		# filter contract for reports the way there is for a plain
+		# doctype list). frappe.desk.query_report.run() is the exact same
+		# real, whitelisted function ERPNext's own desk Query Report
+		# screen calls — it runs the report's real permission checks
+		# internally (raises frappe.PermissionError for a report/doctype
+		# this session's real role can't access), same as get_doc/
+		# get_list's own explicit checks above rely on for everything else.
+		report_name = spec.get("reportName")
+		if not report_name:
+			frappe.throw('Noviz AI: a "run_report" call spec requires a "reportName" — cannot execute it.')
+		from frappe.desk.query_report import run as run_query_report
+
+		message = run_query_report(report_name=report_name, filters=spec.get("reportFilters") or {})
+		return _normalize_report_result(message)
+
+	if kind == "list_inbox_emails":
+		# A live, read-only IMAP fetch (see email_reader.py's own doc
+		# comment for the full rationale — this replaced an earlier
+		# approach that reused Frappe's own Email Account/POP3 machinery,
+		# which turned out to delete messages from the real server as a
+		# side effect). No doctype/permission check needed here — this
+		# never touches any ERPNext document, it only reads a live
+		# mailbox.
+		from noviz_ai.email_reader import fetch_recent_emails
+
+		limit = spec.get("limit") or 10
+		return _json_safe(fetch_recent_emails(limit=limit))
+
+	if kind == "send_reply_email":
+		# The send-side counterpart — a real SMTP send (email_sender.py),
+		# addressed directly (to/subject/body), no Communication record
+		# lookup required. This is the correct reply path for an email
+		# that came from list_inbox_emails above (a live IMAP fetch has
+		# no local ERPNext document to reference at all) — reply_communication
+		# below still exists for the separate, doctype-linked-thread case.
+		values = spec.get("values") or {}
+		to_address = values.get("to")
+		subject = values.get("subject")
+		body = values.get("body")
+		if not (to_address and subject and body):
+			frappe.throw('Noviz AI: a "send_reply_email" call spec requires values.to, values.subject, and values.body — cannot execute it.')
+		from noviz_ai.email_sender import send_reply
+
+		send_reply(to_address, subject, body)
+		return {"sent": True, "to": to_address}
+
 	doctype = spec.get("doctype")
 	if not doctype:
 		frappe.throw("Noviz AI: the relay sent a call spec with no doctype — cannot execute it.")
-	if kind not in SUPPORTED_KINDS:
-		frappe.throw(f'Noviz AI: this plugin does not know how to execute call kind "{kind}" (only {sorted(SUPPORTED_KINDS)} are supported).')
 
 	if kind == "get_list":
 		# Real permission check, not implied by frappe.get_list() alone —
@@ -52,10 +138,21 @@ def execute_call_spec(spec: dict):
 		# check here makes both paths behave identically and correctly.
 		if not frappe.has_permission(doctype, "read"):
 			frappe.throw(f"Noviz AI: you do not have permission to read {doctype} records.", frappe.PermissionError)
+		# Real bug found live 2026-08-20: "order_by" was never read from
+		# the call spec at all, even though the relay's own tool schema
+		# (sortBy/sortDir) has always advertised real sorting as
+		# supported — so "bring me 5 latest quotation" silently got
+		# whatever order frappe.get_list()'s own default happens to be
+		# (NOT what the model actually asked for), and every "latest N"/
+		# "top N"/"oldest N" question on the relay was affected the same
+		# way. The local (non-relay) product's own erpnextConnector.ts
+		# already builds a real order_by string with this exact tie-break
+		# shape — mirrored here so both paths behave identically.
 		rows = frappe.get_list(
 			doctype,
 			fields=spec.get("fields") or ["name"],
 			filters=spec.get("filters"),
+			order_by=spec.get("order_by"),
 			limit_page_length=spec.get("limit") or 20,
 			limit_start=spec.get("start") or 0,
 		)
@@ -133,6 +230,31 @@ def execute_call_spec(spec: dict):
 		if print_format and original.reference_doctype and original.reference_name:
 			kwargs["print_format"] = print_format
 		result = make_communication(**kwargs)
+		frappe.db.commit()
+		return _json_safe(result)
+
+	if kind == "send_communication":
+		# A genuinely FRESH outbound email — no existing Communication
+		# thread to reply to (that's reply_communication's own job above).
+		# Same real make() function, same real SMTP send, just no
+		# in_reply_to/original thread involved. No linked-document/PDF-
+		# attachment support yet (a real, separate follow-up).
+		values = spec.get("values") or {}
+		recipients = values.get("recipients")
+		subject = values.get("subject")
+		content = values.get("content")
+		if not recipients or not subject or not content:
+			frappe.throw('Noviz AI: a "send_communication" call spec requires values.recipients, values.subject, and values.content — cannot execute it.')
+
+		from frappe.core.doctype.communication.email import make as make_communication
+
+		result = make_communication(
+			content=content,
+			subject=subject,
+			recipients=recipients,
+			communication_medium="Email",
+			send_email=1,
+		)
 		frappe.db.commit()
 		return _json_safe(result)
 

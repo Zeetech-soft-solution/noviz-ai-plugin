@@ -25,11 +25,17 @@ MAX_ROUND_TRIPS = 10
 
 
 def _settings():
+	# 2026-08-21: the standalone "Enabled" checkbox was removed - a real
+	# AI Relay Token being present IS "enabled" now, no separate manual
+	# toggle to forget to flip. This is the one real gate chat has to
+	# clear before it can run at all.
 	settings = frappe.get_single("Noviz AI Settings")
-	if not settings.enabled:
-		frappe.throw("Noviz AI is not enabled for this site. Ask your ERPNext administrator to configure it under Noviz AI Settings.")
 	if not settings.relay_base_url or not settings.get_password("api_key"):
-		frappe.throw("Noviz AI Settings is missing its Relay Base URL or API Key — ask your administrator to finish setup.")
+		frappe.throw(
+			"We don't have a relay token configured yet for this site. Ask your administrator to "
+			'<a href="https://noviz.in/pricing.html" target="_blank" rel="noopener">get an AI Relay Token</a> '
+			"and enter it under Noviz AI Settings."
+		)
 	return settings
 
 
@@ -71,9 +77,18 @@ def _post(url, json_body, headers, session=None):
 	except requests.exceptions.RequestException as e:
 		frappe.throw(f"Noviz AI could not reach the relay server ({e}). Check the Relay Base URL in Noviz AI Settings, or try again shortly.")
 	if response.status_code == 401:
+		# A clear, actionable message instead of a bare 401. Deliberately
+		# does not distinguish "unknown key" from "real key, subscription
+		# lapsed" — that distinction stays hidden at the relay's own auth
+		# layer on purpose (see tenantMiddleware.ts: never let a raw 401
+		# response confirm whether a given key string is real). This is
+		# just a clearer message for the same underlying case ("chat
+		# isn't working right now"), with a link to activate/renew
+		# instead of a dead end.
 		frappe.throw(
-			"Noviz AI could not authenticate with the relay. Your API key may be invalid, revoked, or your trial may have expired. "
-			"Ask your administrator to check Noviz AI Settings, or contact Noviz AI for a new key."
+			"Noviz AI's key needs to be activated. Your API key may be invalid, revoked, or your subscription may "
+			"have lapsed. Ask your administrator to check Noviz AI Settings, or "
+			'<a href="https://noviz.in/pricing.html" target="_blank" rel="noopener">get your API key</a>.'
 		)
 	response.raise_for_status()
 	return response.json()
@@ -92,7 +107,7 @@ def get_status():
 	an actual chat attempt is made).
 	"""
 	settings = frappe.get_single("Noviz AI Settings")
-	configured = bool(settings.enabled and settings.relay_base_url and settings.get_password("api_key", raise_exception=False))
+	configured = bool(settings.relay_base_url and settings.get_password("api_key", raise_exception=False))
 	return {
 		"configured": configured,
 		# Only a user who could actually fix the config (write access on
@@ -122,7 +137,7 @@ def sync_module_policies(settings=None):
 	own POST /policies — always the full set, not a diff).
 	"""
 	settings = settings or frappe.get_single("Noviz AI Settings")
-	if not (settings.enabled and settings.relay_base_url and settings.get_password("api_key", raise_exception=False)):
+	if not (settings.relay_base_url and settings.get_password("api_key", raise_exception=False)):
 		return
 	try:
 		base_url = settings.relay_base_url.rstrip("/")
@@ -317,3 +332,83 @@ def scan_image(note: str = None, previous_turn_id: str = None):
 
 		json_headers = _relay_headers(settings)
 		return _drive_fetch_continue_loop(result, base_url, json_headers, session)
+
+
+@frappe.whitelist()
+def generate_report_pdf(spec: str):
+	"""report.generate's real, local half — see relayReasoningEngine.ts's
+	own buildReportSpec doc comment for the full architecture ("why zero
+	round trip", the real user ask that drove it: "not moving big data
+	through traffic and llm"). `spec` is a small, real JSON description
+	the relay already built (a doctype/report name, native field names,
+	filters, column labels, a title — never a raw row, never SQL) — this
+	fetches the REAL rows directly against ERPNext (zero network hop,
+	same box) and renders the PDF locally (pdf_report.py), then streams
+	it straight back.
+
+	Real, deliberate security note: `spec` is plain, unsigned JSON a
+	client could in principle edit before it reaches here — that's fine.
+	The actual boundary is ERPNext's own real permission system
+	(fetch_entity_rows'/run_named_report's own frappe.has_permission /
+	query_report.run checks below), applied to whatever the ALREADY-
+	AUTHENTICATED Frappe session calling this endpoint is actually
+	allowed to see — exactly the same trust model get_list/get_doc
+	already have in dispatcher.py. An edited spec can only ever ask for
+	data this real person could already see some other way.
+	"""
+	import json
+
+	try:
+		parsed = json.loads(spec)
+	except (TypeError, ValueError):
+		frappe.throw("A valid report spec is required.")
+
+	source = parsed.get("source")
+	title = parsed.get("title") or "Report"
+	columns = parsed.get("columns")
+
+	from noviz_ai.pdf_report import columns_from_rows, fetch_entity_rows, render_table_pdf, run_aggregate_query, run_named_report
+
+	if source == "named_report":
+		report_name = parsed.get("reportName")
+		if not report_name:
+			frappe.throw("A report name is required.")
+		rows = run_named_report(report_name, parsed.get("reportFilters"))
+		if not columns:
+			columns = columns_from_rows(rows)
+		else:
+			columns = columns_from_rows(rows, [c["key"] for c in columns])
+	elif source == "entity_query":
+		doctype = parsed.get("doctype")
+		if not doctype:
+			frappe.throw("A doctype is required.")
+		rows = fetch_entity_rows(doctype, parsed.get("fields"), parsed.get("filters"))
+		if not columns:
+			columns = columns_from_rows(rows)
+	elif source == "aggregate_query":
+		# The complete version of analytics.aggregate/database_engine.
+		# execute_query's own groupBy result — see run_aggregate_query's
+		# own doc comment for why this uses a real SQL GROUP BY rather
+		# than a fetch-then-sum loop.
+		doctype = parsed.get("doctype")
+		group_by = parsed.get("groupBy")
+		metrics = parsed.get("metrics")
+		if not doctype or not group_by or not metrics:
+			frappe.throw("A doctype, groupBy field, and at least one metric are required.")
+		rows = run_aggregate_query(doctype, group_by, metrics, parsed.get("filters"))
+		# columns is already the relay's own real, complete spec (group
+		# field + each metric's own label) — never re-derived from rows
+		# here, unlike named_report/entity_query above, since a group-by
+		# result's own shape is already fully known ahead of the fetch.
+	else:
+		frappe.throw('spec.source must be "named_report", "entity_query", or "aggregate_query"')
+
+	pdf_bytes = render_table_pdf(title, columns, rows)
+
+	# Same real, standard Frappe "binary file download" response shape
+	# frappe.utils.print_format.download_pdf itself uses — nothing
+	# custom, no new dependency.
+	safe_title = "".join(c if c.isalnum() or c in "-_ " else "_" for c in title)[:60].strip() or "report"
+	frappe.local.response.filename = f"{safe_title}.pdf"
+	frappe.local.response.filecontent = pdf_bytes
+	frappe.local.response.type = "download"

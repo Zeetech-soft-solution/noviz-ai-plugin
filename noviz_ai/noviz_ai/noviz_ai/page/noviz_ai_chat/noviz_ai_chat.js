@@ -128,6 +128,7 @@ if (!document.getElementById('noviz-ai-chat-style')) {
 			background: #1e7a5c; border-color: #1e7a5c; color: #fff; font-weight: 600;
 		}
 
+
 		.noviz-ai-chat-input-row { display: flex; gap: 8px; padding-top: 12px; border-top: 1px solid var(--border-color, #d1d8dd); }
 		.noviz-ai-chat-input { flex: 1; }
 			/* Attach/camera — real port of Pro's own Composer.tsx icon pair,
@@ -235,9 +236,15 @@ class NovizAIChat {
 		// Pro's own chat. Delegated on the log itself since these
 		// buttons come from server-rendered HTML injected after the
 		// fact, not elements this file created directly.
+		// A server-injected pagination step (relayReasoningEngine.ts's own
+		// NextStep, hidden:true) carries a precise instruction the person
+		// never asked to see typed into their own chat history —
+		// data-hidden="1" tells send() to skip the visible user bubble for
+		// this one click while still making the real request.
 		this.$log.on('click', '.erp-agent-next-step[data-action]', (e) => {
 			if (this.sending) return;
-			this.send($(e.currentTarget).attr('data-action'));
+			const $btn = $(e.currentTarget);
+			this.send($btn.attr('data-action'), $btn.attr('data-hidden') === '1');
 		});
 		// Per-message export button, appended in addMessage() below —
 		// delegated the same way since it's added to server-rendered
@@ -265,6 +272,13 @@ class NovizAIChat {
 		// someone actually typed a question. Checked async so the chat
 		// shell itself still renders instantly either way.
 		this.checkStatus();
+		// Company Policy is a server-side, per-tenant concept (Noviz AI
+		// Settings' own module_policies table, synced to the relay via
+		// sync_module_policies() and enforced there against every turn)
+		// — it never needed a second display surface inside the chat
+		// window itself. An admin who wants to see/edit it already has
+		// Noviz AI Settings for that. (Previously showed a collapsible
+		// panel here via loadCompanyPolicy() — removed.)
 	}
 
 	/** noviz_ai.api.get_status() is safe to call even when nothing is
@@ -328,6 +342,29 @@ class NovizAIChat {
 		$(`<a href="${url}" target="_blank" rel="noopener" class="noviz-ai-msg-export noviz-ai-doc-download">${__('Download PDF')}</a>`).appendTo($msg);
 	}
 
+	/** report.generate's real download link — see relayReasoningEngine.ts's
+	 *  own buildReportSpec doc comment for the full architecture. Real
+	 *  bug found live 2026-08-20, fixed twice over on the way here:
+	 *  (1) the model's own prose reply already contains a markdown
+	 *  [text](url) link, but frappe.markdown() (this page's own real
+	 *  renderer) does not reliably linkify it — confirmed live, inert
+	 *  plain text, no working href. Fixed by building a real, separate
+	 *  anchor element instead (same reasoning appendDocumentLink above
+	 *  already uses).
+	 *  (2) an earlier version of this feature had the relay itself fetch
+	 *  rows and render/host the PDF — this conflicted with the core
+	 *  architectural principle of never moving bulk row data through the
+	 *  relay/LLM. Now `report.spec` is a small description (never a row
+	 *  of data) — this builds a link straight to api.py's own
+	 *  generate_report_pdf, which fetches the real rows and renders the
+	 *  PDF entirely on ITS OWN, directly against ERPNext (zero network
+	 *  hop, same box) — the relay never sees a row or a PDF byte. */
+	appendReportLink($msg, report) {
+		const label = report.title ? __('Download {0}', [report.title]) : __('Download Report');
+		const url = `/api/method/noviz_ai.api.generate_report_pdf?spec=${encodeURIComponent(JSON.stringify(report.spec))}`;
+		$(`<a href="${url}" target="_blank" rel="noopener" class="noviz-ai-msg-export noviz-ai-doc-download">${label}</a>`).appendTo($msg);
+	}
+
 	/** `html` (when present) is real, pre-rendered markup from the relay
 	 *  (rendererRegistry) — injected as-is, appended after the markdown-
 	 *  rendered text reply, same "text explains, table shows the real
@@ -368,6 +405,9 @@ class NovizAIChat {
 		if (message && message.document) {
 			this.appendDocumentLink($thinking, message.document);
 		}
+		if (message && message.report && message.report.spec) {
+			this.appendReportLink($thinking, message.report);
+		}
 		// Track the relay's own turnId so the NEXT message continues this
 		// same conversation instead of starting fresh — real memory, not
 		// just a longer single reply. Works the same way whether the turn
@@ -380,15 +420,19 @@ class NovizAIChat {
 
 	/** `promptOverride` lets a row-id click / next-step button send a
 	 *  real new prompt without the user retyping it — same mechanism
-	 *  the ordinary input box uses underneath. */
-	send(promptOverride) {
+	 *  the ordinary input box uses underneath. `hidden` (only ever true
+	 *  for a server-injected pagination step's own next-step button —
+	 *  see the click handler above) skips adding that literal instruction
+	 *  as a visible user chat bubble; the real request and "Thinking..."
+	 *  placeholder still happen exactly the same either way. */
+	send(promptOverride, hidden) {
 		const prompt = (promptOverride || this.$input.val()).trim();
 		if (!prompt || this.sending) return;
 
 		this.sending = true;
 		this.$sendBtn.prop('disabled', true);
 		if (!promptOverride) this.$input.val('');
-		this.addMessage('user', prompt);
+		if (!hidden) this.addMessage('user', prompt);
 		const $thinking = this.addMessage('assistant', __('Thinking...'));
 
 		frappe.call({

@@ -7,11 +7,10 @@ from frappe.model.document import Document
 
 class NovizAISettings(Document):
 	def on_update(self):
-		# Real, explicit product ask: a tenant's own Company Policy
-		# (module_policies child table) must reach the relay so it can
-		# actually be used at chat time — this is the one-way sync point.
-		# See api.py's sync_module_policies() for the full "why" this
-		# doesn't happen on every chat turn instead.
+		# A tenant's own Company Policy (module_policies child table) must
+		# reach the relay so it can actually be used at chat time — this
+		# is the one-way sync point. See api.py's sync_module_policies()
+		# for why this happens here rather than on every chat turn.
 		from noviz_ai.api import sync_module_policies
 
 		sync_module_policies(self)

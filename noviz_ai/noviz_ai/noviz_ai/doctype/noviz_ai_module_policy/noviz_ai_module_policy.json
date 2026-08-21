@@ -16,7 +16,7 @@
    "fieldtype": "Select",
    "in_list_view": 1,
    "label": "Module",
-   "options": "Selling\nBuying\nAccounting\nHR / HRMS\nStock / Inventory\nManufacturing\nProjects\nQuality\nSupport\nAssets\nCRM",
+   "options": "Common (applies to every module)\nSelling\nBuying\nAccounting\nHR / HRMS\nStock / Inventory\nManufacturing\nProjects\nQuality\nSupport\nAssets\nCRM\nUtilities (calculator, charts, email, notifications)",
    "reqd": 1
   },
   {
