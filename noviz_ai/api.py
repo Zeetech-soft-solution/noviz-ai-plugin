@@ -16,7 +16,18 @@ from noviz_ai.dispatcher import execute_call_spec
 # take a while (the model reasoning, then us executing a real ERPNext
 # call, repeated a few times) — generous but bounded, matching the
 # central server's own documented turn-time budget.
-REQUEST_TIMEOUT_SECONDS = 30
+#
+# Real gap found live 2026-08-21: the relay's own OpenAI client
+# (openaiProvider.ts) retries up to 5 times on a timeout/429, each
+# attempt allowed up to 25s — a legitimate worst case of ~130s before
+# the relay itself gives up. At the old 30s value, THIS timeout fired
+# first on a slow-but-eventually-successful turn: the person saw a
+# "could not reach the relay server" error while the relay kept working
+# and marked the turn "completed" server-side, an answer nobody ever
+# saw. 150s gives real headroom above that worst case (also comfortably
+# under nginx's own proxy_read_timeout on the ERPNext side, bumped to
+# match — see sites-available/sunrise.noviz.in).
+REQUEST_TIMEOUT_SECONDS = 150
 # Real, hard ceiling on how many fetch/continue round trips one chat
 # message can trigger — never infinite. A relay bug or a misbehaving
 # model asking for tool after tool after tool should fail loudly with a
