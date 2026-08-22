@@ -273,6 +273,45 @@ def send_message(prompt: str, previous_turn_id: str = None):
 
 
 @frappe.whitelist()
+def next_page(tool: str, args: str):
+	"""Real, explicit product ask (2026-08-22): "u generate next page
+	urself too... now it needs to send llm, remove that" — a "Show me
+	more"/"Download complete PDF" button click already carries the EXACT
+	next query (relayReasoningEngine.ts's own NextStep.query) with zero
+	reasoning required. This calls the relay's own /turn/next-page
+	instead of /turn — same real fetch/continue machine below for a
+	groupBy/metrics query (a genuine ERPNext round trip for the real rows
+	is still unavoidable, the full computation has to actually re-run),
+	but the relay never calls the LLM for this turn at all. `args`
+	arrives as a JSON string (frappe.whitelist() only accepts primitive
+	param types) — parsed here, same shape the button's own data-query
+	attribute already carries client-side.
+	"""
+	import json
+
+	if not tool or not tool.strip():
+		frappe.throw("tool is required")
+
+	settings = _settings()
+	base_url = settings.relay_base_url.rstrip("/")
+	headers = _relay_headers(settings)
+
+	with requests.Session() as session:
+		result = _post(
+			f"{base_url}/v1/agent/turn/next-page",
+			{
+				"tool": tool,
+				"args": json.loads(args) if args else {},
+				"frappe_user": frappe.session.user,
+				"frappe_roles": frappe.get_roles(frappe.session.user),
+			},
+			headers,
+			session,
+		)
+		return _drive_fetch_continue_loop(result, base_url, headers, session)
+
+
+@frappe.whitelist()
 def scan_image(note: str = None, previous_turn_id: str = None):
 	"""Real port of Pro's own attach/camera scan feature (Composer.tsx's
 	📎/📷 buttons -> agent.routes.ts's /scan route -> documentScanner.ts),

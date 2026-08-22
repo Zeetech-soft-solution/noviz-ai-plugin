@@ -230,6 +230,47 @@ class NovizAIChat {
 			if (e.key === 'Enter' && !this.sending) this.send();
 		});
 
+		// Real, explicit product ask (2026-08-22): "u generate next page
+		// urself too... now it needs to send llm, remove that" — a
+		// "Show me more"/"Download complete PDF" button carries a
+		// data-query payload ({tool, args}) whenever the relay already
+		// knows the exact next call with zero reasoning required
+		// (relayReasoningEngine.ts's own NextStep.query). Bound BEFORE
+		// the data-action handler below and stops it from also firing on
+		// the SAME click (jQuery runs every matching delegated handler in
+		// registration order otherwise — this button matches both
+		// selectors on purpose, data-action stays as a fallback attribute
+		// for an older plugin build, never meant to double-fire here) —
+		// calls noviz_ai.api.next_page directly instead of send_message,
+		// skipping the LLM (and its own real system-prompt-plus-tools
+		// token cost) entirely for this click.
+		this.$log.on('click', '.erp-agent-next-page[data-query]', (e) => {
+			e.stopImmediatePropagation();
+			if (this.sending) return;
+			const $btn = $(e.currentTarget);
+			let payload;
+			try {
+				payload = JSON.parse($btn.attr('data-query'));
+			} catch (err) {
+				// Malformed payload should never happen (server-generated),
+				// but never silently do nothing on a real click — fall back
+				// to the normal LLM-driven path via data-action instead.
+				return this.send($btn.attr('data-action'), true);
+			}
+			this.sending = true;
+			this.$sendBtn.prop('disabled', true);
+			const $placeholder = this.addMessage('assistant', __('Loading...'));
+			frappe.call({
+				method: 'noviz_ai.api.next_page',
+				args: { tool: payload.tool, args: JSON.stringify(payload.args || {}) },
+				callback: (r) => this._renderTurnResult($placeholder, r.message),
+				error: () => $placeholder.remove(),
+				always: () => {
+					this.sending = false;
+					this.$sendBtn.prop('disabled', false);
+				},
+			});
+		});
 		// A row's own id, or a next_steps action button, inside the
 		// injected HTML is a real clickable prompt-sender — same
 		// data-action -> click delegation ResponseView.tsx wires for
