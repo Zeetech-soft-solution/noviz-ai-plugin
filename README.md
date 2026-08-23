@@ -4,17 +4,15 @@ Open-source Frappe/ERPNext integration plugin for Noviz AI. The plugin acts as a
 
 ### Architecture
 
-This repo is deliberately thin. It only knows how to:
+The repository provides the integration layer between ERPNext and the Noviz AI platform. It is responsible for:
 
-- forward a chat message to the central Noviz AI relay
-- execute the generic `{kind, doctype, filters, fields}` instruction the relay sends back, using Frappe's own ORM
-- hand the result back to the relay
+- Forwarding chat messages to the central Noviz AI relay.
+- Executing the generic `{kind, doctype, filters, fields}` instructions returned by the relay through Frappe's native ORM.
+- Returning the results to the Noviz AI platform.
 
-Every call runs as the logged-in user (`frappe.session.user`) — real, native ERPNext permission enforcement applies exactly as if they'd used ERPNext's own UI, no separate credential involved.
+All operations are executed in the context of the currently logged-in user (`frappe.session.user`). This means ERPNext's existing roles, permissions, and access controls are enforced natively, without requiring separate credentials.
 
-The plugin has no knowledge of entity names, business rules, or prompts — none of that logic is shipped here. All AI reasoning, orchestration, and business logic run on the Noviz AI platform, a separate, closed-source, multi-tenant service. That split is why this plugin can be open source while the platform it talks to isn't.
-
-Hosted access to the platform is available at [noviz.in](https://noviz.in).
+The plugin does not contain entity definitions, business rules, prompts, AI orchestration, or application-specific reasoning. These capabilities are provided by the Noviz AI platform, a separate closed-source, multi-tenant service.
 
 ### License
 
