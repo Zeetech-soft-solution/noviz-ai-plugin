@@ -8,9 +8,7 @@ requires-python = ">=3.10"
 readme = "README.md"
 dynamic = ["version"]
 dependencies = [
-    # frappe is installed and managed by bench — see
-    # [tool.bench.frappe-dependencies] below for the real, functional
-    # version declaration Frappe Cloud actually reads.
+  
 ]
 
 [build-system]
