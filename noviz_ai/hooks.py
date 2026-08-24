@@ -5,10 +5,6 @@ app_description = "Open-source Frappe/ERPNext integration plugin for Noviz AI. T
 app_email = "tajdink@gmail.com"
 app_license = "mit"
 
-# Real destination for the app's own top-level Desktop Icon tile — see
-# add_to_apps_screen below. Matches Frappe's own /desk/<page-name> route
-# convention (the exact same one hrms's own hooks.py "app_home" uses for
-# its "Frappe HR" tile).
 app_home = "/desk/noviz-ai-chat"
 
 # Apps
@@ -17,38 +13,6 @@ app_home = "/desk/noviz-ai-chat"
 # required_apps = []
 
 # Each item in the list will be shown as an app in the apps page
-#
-# Real gap found live 2026-08-18: without this, the plugin's home-screen
-# tile could only ever go through an intermediate Workspace landing page
-# (Desktop Icon -> Workspace Sidebar -> workspace's own "Noviz AI Chat"
-# shortcut card) — an extra click for a genuinely single-feature app.
-# This is the SAME real mechanism hrms uses for its own "Frappe HR" tile
-# (icon_type "App", link_type "External") to land directly on its own
-# home route with zero intermediate hop — ported here, not guessed.
-# frappe.utils.install.create_desktop_icons_from_installed_apps() reads
-# this hook and creates the real Desktop Icon record automatically
-# (frappe's own after_app_install hook calls it on every fresh install —
-# see frappe/hooks.py's own "after_app_install"), and its own dedup
-# logic (create_desktop_icons_from_workspace()) automatically hides the
-# redundant Workspace-based tile once this one exists, since our single
-# Workspace happens to share its exact name with app_title ("Noviz AI").
-# No "logo" key here — tried a real data: URI (the actual Noviz AI mark,
-# see public/images/icon-master.svg) and confirmed live it's genuinely
-# NOT viable: Desktop Icon's own "logo_url" field is a plain Data
-# column, capped at 140 characters by Frappe's own standard Data-field
-# length — a base64-encoded image data: URI (thousands of characters)
-# throws a real CharacterLengthExceededError on save, confirmed live,
-# regardless of this deploy's separate broken-/assets/ issue. A real
-# image file (short URL, long bytes server-side) is the only shape that
-# actually fits this field — not something this thin, asset-serving-
-# broken deployment can offer today. Omitting "logo" falls through to
-# Frappe's own real, intended default (desktop_icon.html's final
-# {% else %} branch -> frappe.utils.desktop_icon()), the SAME
-# colored-initial-letter avatar already used for the Workspace's own
-# sidebar entry — clean on any deployment. The chat page's own header
-# logo (noviz_ai_chat.js) is NOT affected by this 140-char limit (it's
-# plain page JS, no DocType field involved) and DOES use the real
-# embedded image.
 add_to_apps_screen = [
 	{
 		"name": "noviz_ai",
