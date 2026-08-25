@@ -2,7 +2,7 @@ import frappe
 import requests
 
 
-def after_setup():
+def after_install():
 	_create_agent_role()
 	_grant_page_doctype_permission()
 	_grant_settings_doctype_permission()
@@ -10,7 +10,7 @@ def after_setup():
 	_add_sidebar_links()
 	_set_default_relay_url()
 	_seed_module_policy_rows()
-	_report_setup_to_platform()
+	_report_install_to_platform()
 
 
 def _create_agent_role():
@@ -166,7 +166,7 @@ def _seed_module_policy_rows():
 	settings.save(ignore_permissions=True)
 
 
-def _report_setup_to_platform():
+def _report_install_to_platform():
 	try:
 		company_name = frappe.db.get_default("company") or frappe.db.get_value("Company", {}, "name")
 		company = frappe.get_doc("Company", company_name) if company_name else None
