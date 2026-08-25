@@ -1,6 +1,6 @@
 # Small, standalone module for real cross-cutting checks that don't
-# belong in api.py (the relay-facing whitelisted entry point) or
-# install.py (one-time setup) — currently just the app-tile permission
+# belong in api.py (the relay-facing whitelisted entry point) or the
+# one-time app-setup hook module — currently just the app-tile permission
 # gate. Kept separate so hooks.py's own "has_permission" reference stays
 # readable and doesn't pull in requests/dispatcher imports it never uses.
 import frappe

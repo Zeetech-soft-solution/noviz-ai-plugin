@@ -2,7 +2,7 @@
 # report.generate's real architecture (see relayReasoningEngine.ts's own
 # buildReportSpec doc comment for the full design/"why"). Deliberately
 # NOT a new pip dependency: frappe.utils.pdf.get_pdf() is ERPNext's own
-# real, already-installed HTML-to-PDF pipeline — the EXACT SAME one
+# real, already-present HTML-to-PDF pipeline — the EXACT SAME one
 # frappe.utils.print_format.download_pdf (api.py's own appendDocumentLink
 # counterpart) already uses successfully for a single document's real
 # print PDF. Building a plain HTML table and handing it to that function
