@@ -83,29 +83,24 @@ add_to_apps_screen = [
 # 	"filters": "noviz_ai.utils.jinja_filters"
 # }
 
-# Installation
+# App Setup
 # ------------
 
-after_install = "noviz_ai.install.after_install"
-
-# Uninstallation
-# ------------
+after_install = "noviz_ai.setup.after_setup"
 
 # before_uninstall = "noviz_ai.uninstall.before_uninstall"
 # after_uninstall = "noviz_ai.uninstall.after_uninstall"
 
 # Integration Setup
 # ------------------
-# To set up dependencies/integrations with other apps
-# Name of the app being installed is passed as an argument
+# For wiring up dependencies/integrations with other apps
 
 # before_app_install = "noviz_ai.utils.before_app_install"
 # after_app_install = "noviz_ai.utils.after_app_install"
 
 # Integration Cleanup
 # -------------------
-# To clean up dependencies/integrations with other apps
-# Name of the app being uninstalled is passed as an argument
+# For cleaning up dependencies/integrations with other apps
 
 # before_app_uninstall = "noviz_ai.utils.before_app_uninstall"
 # after_app_uninstall = "noviz_ai.utils.after_app_uninstall"
@@ -170,7 +165,7 @@ after_install = "noviz_ai.install.after_install"
 # Testing
 # -------
 
-# before_tests = "noviz_ai.install.before_tests"
+# before_tests = "noviz_ai.setup.before_tests"
 
 # Extend DocType Class
 # ------------------------------
