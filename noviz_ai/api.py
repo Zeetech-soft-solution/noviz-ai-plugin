@@ -105,19 +105,22 @@ def _post(url, json_body, headers, session=None):
 		# Real, explicit fix (2026-08-27) — the relay's own single access
 		# checkpoint (tenantMiddleware.ts's requireTenantAuth) now returns
 		# 402 for a genuinely different case than 401: a real, active,
-		# validly-keyed tenant that has used up this month's token budget
-		# (either the admin's own incoming/outgoing limit, or the paid
-		# plan's own monthly allowance). Without this branch it fell
-		# through to raise_for_status() below and surfaced as a raw,
-		# unhandled HTTPError — Frappe's own generic error dialog instead
-		# of an honest, specific message. The relay's own error text
-		# already says exactly what happened and that it resets next
-		# month; shown as-is rather than re-worded here so the two stay
-		# in sync automatically instead of drifting apart.
+		# validly-keyed tenant that has used up either the monthly OR the
+		# weekly token budget (admin-configured incoming/outgoing limits,
+		# or the paid plan's own monthly allowance). Without this branch
+		# it fell through to raise_for_status() below and surfaced as a
+		# raw, unhandled HTTPError — Frappe's own generic error dialog
+		# instead of an honest, specific message. The relay's own error
+		# text already says exactly which budget (month or week) and the
+		# real resume date; shown as-is rather than re-worded here so the
+		# two stay in sync automatically instead of drifting apart. The
+		# fallback below is a rare backstop (a genuinely missing error
+		# field), deliberately generic rather than naming a specific
+		# period/date it can't actually know.
 		frappe.throw(
 			response.json().get(
 				"error",
-				"This month's Noviz AI usage budget has been used up. Contact Noviz AI to add capacity, or it resets at the start of next month.",
+				"Noviz AI's usage budget has been used up. Contact Noviz AI to add capacity, or it resumes automatically at the next reset.",
 			)
 		)
 	response.raise_for_status()
