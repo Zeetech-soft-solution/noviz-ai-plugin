@@ -32,7 +32,14 @@ REQUEST_TIMEOUT_SECONDS = 150
 # message can trigger — never infinite. A relay bug or a misbehaving
 # model asking for tool after tool after tool should fail loudly with a
 # clear message, not hang this request (or the user's browser) forever.
-MAX_ROUND_TRIPS = 10
+# Raised 10 -> 30 (explicit product ask, 2026-08-26): a real multi-part
+# question (several groupBy/metrics breakdowns plus a monthly trend in
+# one turn) can legitimately need more than 10 real fetches even after
+# relayReasoningEngine.ts's own groupByPeriod fix cut per-trend cost down
+# to one fetch per metric — this is a genuine ceiling raise, not a
+# workaround for that bug. Still bounded, not infinite; REQUEST_TIMEOUT_SECONDS
+# above is the other real backstop if round trips are individually slow.
+MAX_ROUND_TRIPS = 30
 
 
 def _settings():
