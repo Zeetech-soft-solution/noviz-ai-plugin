@@ -101,6 +101,25 @@ def _post(url, json_body, headers, session=None):
 			"have lapsed. Ask your administrator to check Noviz AI Settings, or "
 			'<a href="https://noviz.in/pricing.html" target="_blank" rel="noopener">get your API key</a>.'
 		)
+	if response.status_code == 402:
+		# Real, explicit fix (2026-08-27) — the relay's own single access
+		# checkpoint (tenantMiddleware.ts's requireTenantAuth) now returns
+		# 402 for a genuinely different case than 401: a real, active,
+		# validly-keyed tenant that has used up this month's token budget
+		# (either the admin's own incoming/outgoing limit, or the paid
+		# plan's own monthly allowance). Without this branch it fell
+		# through to raise_for_status() below and surfaced as a raw,
+		# unhandled HTTPError — Frappe's own generic error dialog instead
+		# of an honest, specific message. The relay's own error text
+		# already says exactly what happened and that it resets next
+		# month; shown as-is rather than re-worded here so the two stay
+		# in sync automatically instead of drifting apart.
+		frappe.throw(
+			response.json().get(
+				"error",
+				"This month's Noviz AI usage budget has been used up. Contact Noviz AI to add capacity, or it resets at the start of next month.",
+			)
+		)
 	response.raise_for_status()
 	return response.json()
 
