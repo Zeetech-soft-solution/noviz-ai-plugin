@@ -144,70 +144,73 @@ def _add_desktop_icon():
 		pass
 
 
+# The sidebar rows we want, keyed by (link_type, link_to). Frappe's own
+# auto_generate_icons_and_sidebar() creates the first three with a null
+# icon (so they fall back to a generic list glyph) and labels the
+# workspace row "Home" — this pass fixes the label + icon on whatever it
+# made and appends anything missing. Order matches this list.
+_SIDEBAR_ROWS = [
+	{"link_type": "Workspace", "link_to": "ERP Assistant", "label": "ERP Assistant", "icon": "bot"},
+	{"link_type": "Page", "link_to": "noviz-ai-chat", "label": "Noviz AI Chat", "icon": "message"},
+	{"link_type": "DocType", "link_to": "Noviz AI Settings", "label": "Noviz AI Settings", "icon": "settings"},
+	{"link_type": "URL", "link_to": None, "url": "mailto:support@noviz.in", "label": "Support", "icon": "help"},
+]
+
+
 def _add_sidebar_links():
 	if not frappe.db.exists("Workspace Sidebar", "ERP Assistant"):
 		return
 	sidebar = frappe.get_doc("Workspace Sidebar", "ERP Assistant")
-	existing_labels = {item.label for item in sidebar.items}
 	changed = False
 
-	if "Noviz AI Chat" not in existing_labels:
-		sidebar.append(
-			"items",
-			{
+	# Drop a stray "Email" row an earlier build shipped, and de-dupe rows
+	# that point at the same target (auto_generate can re-add the
+	# workspace "Home" row on a later migrate).
+	seen = set()
+	kept = []
+	for i in sidebar.items:
+		if i.label == "Email":
+			continue
+		key = (i.link_type, i.link_to or i.url or i.label)
+		if key in seen:
+			continue
+		seen.add(key)
+		kept.append(i)
+	if len(kept) != len(sidebar.items):
+		sidebar.items = kept
+		changed = True
+
+	for want in _SIDEBAR_ROWS:
+		match = None
+		for item in sidebar.items:
+			same_link = item.link_type == want["link_type"] and (
+				want["link_type"] == "URL" or item.link_to == want["link_to"]
+			)
+			if same_link or item.label == want["label"]:
+				match = item
+				break
+		if match:
+			if match.label != want["label"] or match.icon != want["icon"]:
+				match.label = want["label"]
+				match.icon = want["icon"]
+				changed = True
+		else:
+			row = {
 				"type": "Link",
-				"label": "Noviz AI Chat",
-				"link_type": "Page",
-				"link_to": "noviz-ai-chat",
-				"icon": "message",
+				"label": want["label"],
+				"link_type": want["link_type"],
+				"link_to": want["link_to"],
+				"icon": want["icon"],
 				"indent": 0,
 				"collapsible": 1,
 				"keep_closed": 0,
 				"show_arrow": 0,
 				"child": 0,
-			},
-		)
-		changed = True
-
-	if "Noviz AI Settings" not in existing_labels:
-		sidebar.append(
-			"items",
-			{
-				"type": "Link",
-				"label": "Noviz AI Settings",
-				"link_type": "DocType",
-				"link_to": "Noviz AI Settings",
-				"icon": "settings",
-				"indent": 0,
-				"collapsible": 1,
-				"keep_closed": 0,
-				"show_arrow": 0,
-				"child": 0,
-			},
-		)
-		changed = True
-
-	if "Email" in existing_labels:
-		sidebar.items = [item for item in sidebar.items if item.label != "Email"]
-		changed = True
-
-	if "Support" not in existing_labels:
-		sidebar.append(
-			"items",
-			{
-				"type": "Link",
-				"label": "Support",
-				"link_type": "URL",
-				"url": "mailto:support@noviz.in",
-				"icon": "help",
-				"indent": 0,
-				"collapsible": 1,
-				"keep_closed": 0,
-				"show_arrow": 0,
-				"child": 0,
-			},
-		)
-		changed = True
+			}
+			if want.get("url"):
+				row["url"] = want["url"]
+			sidebar.append("items", row)
+			changed = True
 
 	if changed:
 		sidebar.save(ignore_permissions=True)
