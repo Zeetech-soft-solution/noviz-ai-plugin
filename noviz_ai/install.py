@@ -151,7 +151,7 @@ def _add_sidebar_links():
 				"label": "Noviz AI Chat",
 				"link_type": "Page",
 				"link_to": "noviz-ai-chat",
-				"icon": "chat",
+				"icon": "message",
 				"indent": 0,
 				"collapsible": 1,
 				"keep_closed": 0,

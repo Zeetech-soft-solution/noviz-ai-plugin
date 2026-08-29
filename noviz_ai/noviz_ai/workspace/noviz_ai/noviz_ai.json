@@ -7,7 +7,7 @@
  "docstatus": 0,
  "doctype": "Workspace",
  "hide_custom": 0,
- "icon": "chat",
+ "icon": "bot",
  "idx": 0,
  "indicator_color": "green",
  "is_hidden": 0,
@@ -37,7 +37,7 @@
   {
    "color": "Green",
    "doc_view": "",
-   "icon": "chat",
+   "icon": "message",
    "label": "Noviz AI Chat",
    "link_to": "noviz-ai-chat",
    "type": "Page"

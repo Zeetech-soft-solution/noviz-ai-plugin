@@ -8,18 +8,6 @@
 // rendered HTML (relayReasoningEngine.ts reusing the same
 // rendererRegistry/tableRenderer.ts the single-tenant product's own
 // chat already relies on), this file just injects it.
-// The real Noviz AI mark (same visual pattern as Zeetech's own "Z" —
-// dark rounded-square background, bold letter in the brand teal — see
-// noviz-ai-plugin/public/images/icon-master.svg for the source SVG and
-// generation script). Embedded as a data: URI rather than referenced by
-// a /assets/noviz_ai/... URL: a real, separate infra issue found live
-// this session on the demo deployment (the frontend/nginx container
-// only has frappe/erpnext baked into its own image, so ANY /assets/
-// noviz_ai/... path 404s there) means a plain <img src> reference can't
-// be trusted to work on every real deployment. A data: URI has no
-// dependency on any site's own asset-serving config at all.
-const NOVIZ_AI_LOGO_DATA_URI =
-	'data:image/png;base64,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';
 
 frappe.pages['noviz-ai-chat'].on_page_load = function (wrapper) {
 	var page = frappe.ui.make_app_page({
@@ -42,8 +30,10 @@ if (!document.getElementById('noviz-ai-chat-style')) {
 			border-bottom: 1px solid var(--border-color, #d1d8dd); margin-bottom: 14px;
 		}
 		.noviz-ai-logo {
-			width: 32px; height: 32px; border-radius: 8px; flex-shrink: 0; display: block;
+			flex-shrink: 0; display: inline-flex; align-items: center;
+			color: #4FBB9C; --icon-stroke: #4FBB9C;
 		}
+		.noviz-ai-logo .icon { width: 24px; height: 24px; }
 		.noviz-ai-header-text h3 { margin: 0; font-size: 16px; }
 		.noviz-ai-header-text .noviz-ai-subtitle { font-size: 12px; color: var(--text-muted, #8d99a6); }
 
@@ -182,7 +172,7 @@ class NovizAIChat {
 		this.$container = $(`
 			<div class="noviz-ai-main">
 				<div class="noviz-ai-header">
-					<img class="noviz-ai-logo" src="${NOVIZ_AI_LOGO_DATA_URI}" alt="${__('Noviz AI')}" />
+					<span class="noviz-ai-logo">${frappe.utils.icon('bot', 'lg')}</span>
 					<div class="noviz-ai-header-text">
 						<h3>${__('Noviz AI')}</h3>
 						<div class="noviz-ai-subtitle">${__('ERP Assistant for')} ${frappe.defaults.get_default('company') || frappe.sys_defaults.company || ''}</div>
