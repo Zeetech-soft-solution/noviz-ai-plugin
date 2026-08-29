@@ -74,14 +74,31 @@ def render_table_pdf(title: str, columns: list, rows: list) -> bytes:
 REPORT_ROW_CAP = 10000
 
 
-def fetch_entity_rows(doctype: str, fields: list, filters) -> list:
+def fetch_entity_rows(doctype: str, fields: list, filters, limit=None, order_by=None) -> list:
 	"""Real permission check first (same explicit discipline dispatcher.py's
 	own get_list branch already uses) — this is the ONLY place a report's
 	actual rows are ever fetched, always as the real logged-in person's
-	own session, ERPNext's own DocPerm governing exactly what comes back."""
+	own session, ERPNext's own DocPerm governing exactly what comes back.
+
+	`limit`/`order_by` are honored when the relay's spec carries them —
+	"Download PDF" for a bounded ask ("the last 37 quotations") exports
+	exactly those 37, in that order. Absent (a plain unfiltered list) it
+	stays "every row" up to REPORT_ROW_CAP, unordered."""
 	if not frappe.has_permission(doctype, "read"):
 		frappe.throw(f"You do not have permission to read {doctype} records.", frappe.PermissionError)
-	rows = frappe.get_list(doctype, fields=fields or ["name"], filters=filters, limit_page_length=REPORT_ROW_CAP)
+	page_length = REPORT_ROW_CAP
+	try:
+		if limit is not None:
+			page_length = max(1, min(int(limit), REPORT_ROW_CAP))
+	except (TypeError, ValueError):
+		page_length = REPORT_ROW_CAP
+	rows = frappe.get_list(
+		doctype,
+		fields=fields or ["name"],
+		filters=filters,
+		order_by=order_by or None,
+		limit_page_length=page_length,
+	)
 	return [dict(r) for r in rows]
 
 

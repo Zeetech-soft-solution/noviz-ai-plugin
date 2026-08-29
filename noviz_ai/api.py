@@ -461,7 +461,13 @@ def generate_report_pdf(spec: str):
 		doctype = parsed.get("doctype")
 		if not doctype:
 			frappe.throw("A doctype is required.")
-		rows = fetch_entity_rows(doctype, parsed.get("fields"), parsed.get("filters"))
+		rows = fetch_entity_rows(
+			doctype,
+			parsed.get("fields"),
+			parsed.get("filters"),
+			limit=parsed.get("limit"),
+			order_by=parsed.get("order_by"),
+		)
 		if not columns:
 			columns = columns_from_rows(rows)
 	elif source == "aggregate_query":
