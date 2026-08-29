@@ -142,15 +142,17 @@ def _add_desktop_icon():
 		frappe.log_error(title="Noviz AI: auto_generate_icons_and_sidebar unavailable/failed on this Frappe version")
 
 	# 3. Point the "ERP Assistant" Desktop Icon at the real brand SVG.
-	#    Without a logo_url the desk sidebar header falls back to a plain
-	#    lettered tile ("E") — sidebar_header.js only uses the mark when
-	#    the Desktop Icon carries a logo_url.
+	#    frappe's sidebar_header.js renders the mark only when it finds a
+	#    NON-hidden Desktop Icon (get_desktop_icon_by_label filters
+	#    hidden != 1) that carries a logo_url — auto_generate creates it
+	#    hidden with no logo, so the header falls back to a lettered "E"
+	#    tile. Un-hide it and set the logo + app.
 	try:
 		for _stale in ("Noviz AI",):
 			for _di in frappe.get_all("Desktop Icon", filters={"label": _stale}, pluck="name"):
 				frappe.delete_doc("Desktop Icon", _di, force=True, ignore_permissions=True)
 		for _di in frappe.get_all("Desktop Icon", filters={"label": "ERP Assistant"}, pluck="name"):
-			frappe.db.set_value("Desktop Icon", _di, "logo_url", NOVIZ_LOGO)
+			frappe.db.set_value("Desktop Icon", _di, {"logo_url": NOVIZ_LOGO, "hidden": 0})
 	except Exception:
 		frappe.log_error(title="Noviz AI: could not set the ERP Assistant desktop-icon logo")
 
