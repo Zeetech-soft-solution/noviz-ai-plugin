@@ -26,16 +26,23 @@ if (!document.getElementById('noviz-ai-chat-style')) {
 
 		.noviz-ai-main { display: flex; flex-direction: column; height: calc(100vh - 120px); width: 100%; }
 		.noviz-ai-header {
-			display: flex; align-items: center; gap: 10px; padding-bottom: 14px;
-			border-bottom: 1px solid var(--border-color, #d1d8dd); margin-bottom: 14px;
+			display: flex; align-items: baseline; gap: 8px; min-width: 0;
+			padding-bottom: 12px; margin-bottom: 16px;
+			border-bottom: 1px solid var(--border-color, #d1d8dd);
 		}
 		.noviz-ai-logo {
-			flex-shrink: 0; display: inline-flex; align-items: center;
+			flex-shrink: 0; align-self: center; display: inline-flex;
 			color: #4FBB9C; --icon-stroke: #4FBB9C;
 		}
-		.noviz-ai-logo .icon { width: 24px; height: 24px; }
-		.noviz-ai-header-text h3 { margin: 0; font-size: 16px; }
-		.noviz-ai-header-text .noviz-ai-subtitle { font-size: 12px; color: var(--text-muted, #8d99a6); }
+		.noviz-ai-logo .icon { width: 20px; height: 20px; }
+		.noviz-ai-header h3 {
+			margin: 0; font-size: 15px; font-weight: 600; line-height: 1.2;
+			white-space: nowrap; flex-shrink: 0;
+		}
+		.noviz-ai-header .noviz-ai-subtitle {
+			font-size: 12px; color: var(--text-muted, #8d99a6); line-height: 1.2;
+			white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0;
+		}
 
 		.noviz-ai-chat-log { flex: 1; overflow-y: auto; padding: 4px 0; }
 		.noviz-ai-chat-msg {
@@ -172,11 +179,9 @@ class NovizAIChat {
 		this.$container = $(`
 			<div class="noviz-ai-main">
 				<div class="noviz-ai-header">
-					<span class="noviz-ai-logo">${frappe.utils.icon('bot', 'lg')}</span>
-					<div class="noviz-ai-header-text">
-						<h3>${__('Noviz AI')}</h3>
-						<div class="noviz-ai-subtitle">${__('ERP Assistant for')} ${frappe.defaults.get_default('company') || frappe.sys_defaults.company || ''}</div>
-					</div>
+					<span class="noviz-ai-logo">${frappe.utils.icon('bot', 'md')}</span>
+					<h3>${__('Noviz AI')}</h3>
+					<div class="noviz-ai-subtitle">${__('ERP Assistant for')} ${frappe.defaults.get_default('company') || frappe.sys_defaults.company || ''}</div>
 				</div>
 				<div class="noviz-ai-chat-log"></div>
 				<div class="noviz-ai-chat-input-row">
