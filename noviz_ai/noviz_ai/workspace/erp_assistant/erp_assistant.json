@@ -1,7 +1,7 @@
 {
  "app": "noviz_ai",
  "charts": [],
- "content": "[{\"id\":\"nvz1\",\"type\":\"header\",\"data\":{\"text\":\"<span class=\\\"h4\\\"><b>Noviz AI</b></span>\",\"col\":12}},{\"id\":\"nvz2\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Noviz AI Chat\",\"col\":4}},{\"id\":\"nvz3\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Noviz AI Settings\",\"col\":4}}]",
+ "content": "[{\"id\":\"nvz1\",\"type\":\"header\",\"data\":{\"text\":\"<span class=\\\"h4\\\"><b>ERP Assistant</b></span>\",\"col\":12}},{\"id\":\"nvz2\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Noviz AI Chat\",\"col\":4}},{\"id\":\"nvz3\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Noviz AI Settings\",\"col\":4}}]",
  "creation": "2026-08-18 12:30:35.761720",
  "custom_blocks": [],
  "docstatus": 0,
@@ -11,13 +11,13 @@
  "idx": 0,
  "indicator_color": "green",
  "is_hidden": 0,
- "label": "Noviz AI",
+ "label": "ERP Assistant",
  "link_type": "DocType",
  "links": [],
- "modified": "2026-08-18 14:17:30.544978",
+ "modified": "2026-08-29 12:00:00.000000",
  "modified_by": "Administrator",
  "module": "Noviz AI",
- "name": "Noviz AI",
+ "name": "ERP Assistant",
  "number_cards": [],
  "owner": "Administrator",
  "parent_page": "",
@@ -51,6 +51,6 @@
    "type": "DocType"
   }
  ],
- "title": "Noviz AI",
+ "title": "ERP Assistant",
  "type": "Workspace"
 }

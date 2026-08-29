@@ -104,16 +104,24 @@ def _grant_agent_role_to_system_managers():
 
 
 def _add_desktop_icon():
-	# 1. Make sure the "Noviz AI" Workspace doc is actually in the DB.
+	# 1. Make sure the "ERP Assistant" Workspace doc is in the DB.
 	#    On a managed host the workspace JSON sometimes doesn't get synced
 	#    on install; without the Workspace record NOTHING shows on the
 	#    desk, not even for Administrator. Reloading it from the app's own
 	#    fixture is idempotent and cheap.
+	#    The workspace used to be called "Noviz AI" — same name as the app
+	#    title — which made the desk sidebar header print "Noviz AI" twice
+	#    (workspace name on top, app title beneath). Renamed to
+	#    "ERP Assistant"; drop the old record on upgrade.
 	try:
-		if not frappe.db.exists("Workspace", "Noviz AI"):
-			frappe.reload_doc("noviz_ai", "workspace", "noviz_ai", force=True)
+		for _stale in ("Noviz AI",):
+			if frappe.db.exists("Workspace", _stale):
+				frappe.delete_doc("Workspace", _stale, force=True, ignore_permissions=True)
+			if frappe.db.exists("Workspace Sidebar", _stale):
+				frappe.delete_doc("Workspace Sidebar", _stale, force=True, ignore_permissions=True)
+		frappe.reload_doc("noviz_ai", "workspace", "erp_assistant", force=True)
 	except Exception:
-		frappe.log_error(title="Noviz AI: could not sync the Noviz AI workspace")
+		frappe.log_error(title="Noviz AI: could not sync the ERP Assistant workspace")
 
 	# 2. Generate the app's sidebar icon + "Workspace Sidebar" record.
 	#    The helper's name/signature has moved around across Frappe
@@ -137,9 +145,9 @@ def _add_desktop_icon():
 
 
 def _add_sidebar_links():
-	if not frappe.db.exists("Workspace Sidebar", "Noviz AI"):
+	if not frappe.db.exists("Workspace Sidebar", "ERP Assistant"):
 		return
-	sidebar = frappe.get_doc("Workspace Sidebar", "Noviz AI")
+	sidebar = frappe.get_doc("Workspace Sidebar", "ERP Assistant")
 	existing_labels = {item.label for item in sidebar.items}
 	changed = False
 
