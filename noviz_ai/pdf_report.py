@@ -18,10 +18,20 @@ def _escape(value) -> str:
 	return frappe.utils.escape_html(str(value))
 
 
-def render_table_pdf(title: str, columns: list, rows: list) -> bytes:
+# A table with more than this many columns is cramped on portrait A4 —
+# those default to landscape unless the caller (relay spec) says otherwise.
+_LANDSCAPE_COLUMN_THRESHOLD = 6
+
+
+def render_table_pdf(title: str, columns: list, rows: list, orientation: str = None) -> bytes:
 	"""columns: [{"key": "<real native fieldname>", "label": "<display label>"}, ...]
 	rows: real fetched records (dicts) — one per row, keyed by the SAME
 	native fieldnames `columns` names.
+
+	orientation: "Portrait" | "Landscape". None (the default) auto-picks —
+	landscape once a report has more than _LANDSCAPE_COLUMN_THRESHOLD
+	columns so a wide register/financial report isn't cut off the page.
+	An explicit value from the spec always wins.
 
 	Kept as a real, reusable function (not inlined into one whitelisted
 	endpoint) on purpose — the same real, direct user ask this session
@@ -62,7 +72,9 @@ def render_table_pdf(title: str, columns: list, rows: list) -> bytes:
 	"""
 	from frappe.utils.pdf import get_pdf
 
-	return get_pdf(html)
+	if orientation not in ("Portrait", "Landscape"):
+		orientation = "Landscape" if len(columns) > _LANDSCAPE_COLUMN_THRESHOLD else "Portrait"
+	return get_pdf(html, options={"orientation": orientation, "page-size": "A4"})
 
 
 # Real, honest ceiling — same order of magnitude as reportGenerator.ts's
