@@ -1,6 +1,10 @@
 import frappe
 import requests
 
+# The bundled brand mark (dark rounded square, teal "N"). Same asset the
+# /apps launcher tile and app-switcher use (hooks.py app_logo_url).
+NOVIZ_LOGO = "/assets/noviz_ai/images/icon-master.svg"
+
 
 def after_install():
 	_create_agent_role()
@@ -136,6 +140,19 @@ def _add_desktop_icon():
 			auto_generate_icons_and_sidebar("noviz_ai")
 	except Exception:
 		frappe.log_error(title="Noviz AI: auto_generate_icons_and_sidebar unavailable/failed on this Frappe version")
+
+	# 3. Point the "ERP Assistant" Desktop Icon at the real brand SVG.
+	#    Without a logo_url the desk sidebar header falls back to a plain
+	#    lettered tile ("E") — sidebar_header.js only uses the mark when
+	#    the Desktop Icon carries a logo_url.
+	try:
+		for _stale in ("Noviz AI",):
+			for _di in frappe.get_all("Desktop Icon", filters={"label": _stale}, pluck="name"):
+				frappe.delete_doc("Desktop Icon", _di, force=True, ignore_permissions=True)
+		for _di in frappe.get_all("Desktop Icon", filters={"label": "ERP Assistant"}, pluck="name"):
+			frappe.db.set_value("Desktop Icon", _di, "logo_url", NOVIZ_LOGO)
+	except Exception:
+		frappe.log_error(title="Noviz AI: could not set the ERP Assistant desktop-icon logo")
 
 	try:
 		frappe.cache.delete_key("desktop_icons")
