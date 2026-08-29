@@ -13,6 +13,9 @@
  "roles": [
   {
    "role": "Noviz AI Agent"
+  },
+  {
+   "role": "System Manager"
   }
  ],
  "script": null,

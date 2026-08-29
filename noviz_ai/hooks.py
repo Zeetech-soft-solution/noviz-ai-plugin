@@ -4,6 +4,14 @@ app_publisher = "Zeetech Soft Solution"
 app_description = "Open-source Frappe/ERPNext integration plugin for Noviz AI. The plugin acts as a lightweight client that connects ERPNext to the Noviz Relay API, with AI processing, orchestration, and business logic handled by the Noviz AI platform."
 app_email = "tajdink@gmail.com"
 app_license = "mit"
+# The app's icon in the /apps launcher and the desk app-switcher.
+# REQUIRED: without it frappe.apps.get_apps() returns logo:null for this
+# app and the /apps page silently drops the tile — the exact reason
+# "Noviz AI" never showed on the launcher even though the workspace,
+# sidebar and permissions were all fine (verified live on
+# noviz.frappe.cloud). A crisp bundled SVG, not the auto-generated
+# lettered fallback.
+app_logo_url = "/assets/noviz_ai/images/icon-master.svg"
 
 app_home = "/desk/noviz-ai-chat"
 
@@ -87,6 +95,12 @@ add_to_apps_screen = [
 # ------------
 
 after_install = "noviz_ai.install.after_install"
+# Safety net for managed hosts (Frappe Cloud): every `bench migrate`
+# re-runs the desk-visibility setup (workspace sidebar + app icon + the
+# "grant Agent role to admins" step), all idempotent — so a site where
+# the icon never appeared after install self-heals on the next migrate
+# instead of needing a manual fix.
+after_migrate = "noviz_ai.install.after_migrate"
 
 # Uninstallation
 # ------------

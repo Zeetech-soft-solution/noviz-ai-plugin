@@ -497,3 +497,113 @@ def generate_report_pdf(spec: str):
 	frappe.local.response.filename = f"{safe_title}.pdf"
 	frappe.local.response.filecontent = pdf_bytes
 	frappe.local.response.type = "download"
+
+
+# ---------------------------------------------------------------------------
+# Report discovery — the tenant's OWN report catalogue, read live from the
+# Report doctype. The relay ships ~10 hand-curated named reports with
+# verified filter names; this exposes every OTHER report this specific
+# site has — the ~140 ERPNext standard ones plus any the tenant built
+# themselves — without the relay hand-mapping a single one. Two-step, same
+# shape as data_table.list -> data_table.search_schema: discover_reports()
+# finds the report by keyword, get_report_filters() describes the one the
+# model picked, then it runs through the existing named_report path.
+# ---------------------------------------------------------------------------
+
+_DISCOVERABLE_REPORT_TYPES = ("Query Report", "Script Report", "Report Builder")
+_REPORT_LIST_CAP = 400
+
+
+def _normalize_report_filter(row) -> dict:
+	"""One Report Filter child row (or a legacy plain dict) -> a clean,
+	relay-friendly filter descriptor. Only the fields the model actually
+	needs to fill a filter correctly; never the raw doc."""
+	get = row.get if isinstance(row, dict) else (lambda k, d=None: getattr(row, k, d))
+	fieldname = get("fieldname")
+	if not fieldname:
+		return {}
+	out = {
+		"fieldname": fieldname,
+		"label": get("label") or fieldname.replace("_", " ").title(),
+		"fieldtype": get("fieldtype") or "Data",
+	}
+	options = get("options")
+	if options:
+		out["options"] = options
+	if get("mandatory") or get("reqd"):
+		out["mandatory"] = True
+	default = get("default")
+	if default not in (None, ""):
+		out["default"] = default
+	return out
+
+
+def _report_readable(ref_doctype: str) -> bool:
+	# A report with no ref_doctype (many financial statements) is governed
+	# by the Report doc's own perms, already applied by frappe.get_list
+	# below; one WITH a ref_doctype must also be readable as that doctype.
+	if not ref_doctype:
+		return True
+	try:
+		return bool(frappe.has_permission(ref_doctype, "read"))
+	except Exception:
+		return False
+
+
+@frappe.whitelist()
+def discover_reports(module: str = None, q: str = None):
+	"""Every runnable report on THIS site the current user may access.
+	Optional `module` ("Accounts", "Selling", ...) and `q` (keyword,
+	matched against the report name) narrow it. Returns just names +
+	types — the model calls get_report_filters() next for the one it
+	wants."""
+	filters = {"disabled": 0, "report_type": ["in", list(_DISCOVERABLE_REPORT_TYPES)]}
+	if module:
+		filters["module"] = module
+	if q:
+		filters["name"] = ["like", f"%{q}%"]
+	rows = frappe.get_list(
+		"Report",
+		filters=filters,
+		fields=["name", "module", "ref_doctype", "report_type"],
+		order_by="module asc, name asc",
+		limit_page_length=_REPORT_LIST_CAP + 1,
+	)
+	visible = [r for r in rows[:_REPORT_LIST_CAP] if _report_readable(r.get("ref_doctype"))]
+	return {
+		"reports": [
+			{"name": r["name"], "module": r.get("module"), "ref_doctype": r.get("ref_doctype"), "report_type": r["report_type"]}
+			for r in visible
+		],
+		"truncated": len(rows) > _REPORT_LIST_CAP,
+	}
+
+
+@frappe.whitelist()
+def get_report_filters(report_name: str):
+	"""The filter schema for ONE report — what the model must supply to
+	run it. Query Reports and Report Builder reports store their filters
+	on the Report doc; most Script Reports define theirs in JS instead
+	(not readable here) — those come back with an empty `filters` list
+	and a `note`, and still run fine on their own defaults."""
+	if not report_name:
+		frappe.throw("A report name is required.")
+	if not frappe.db.exists("Report", report_name):
+		frappe.throw(f'No report named "{report_name}" on this site.')
+	doc = frappe.get_doc("Report", report_name)
+	if not frappe.has_permission("Report", "read", doc=doc):
+		frappe.throw(f'You do not have access to the "{report_name}" report.', frappe.PermissionError)
+	if not _report_readable(doc.ref_doctype):
+		frappe.throw(f'You do not have access to the data behind "{report_name}".', frappe.PermissionError)
+
+	raw = list(getattr(doc, "filters", None) or [])
+	filters = [f for f in (_normalize_report_filter(r) for r in raw) if f]
+	result = {
+		"report": doc.name,
+		"ref_doctype": doc.ref_doctype,
+		"report_type": doc.report_type,
+		"filters": filters,
+	}
+	if not filters and doc.report_type == "Script Report":
+		result["note"] = "This report defines its filters in code — run it with no filters (it applies its own defaults), or set common ones like from_date/to_date/company and see if the result looks right."
+	return result

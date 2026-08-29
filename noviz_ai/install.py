@@ -6,11 +6,25 @@ def after_install():
 	_create_agent_role()
 	_grant_page_doctype_permission()
 	_grant_settings_doctype_permission()
+	_grant_agent_role_to_system_managers()
 	_add_desktop_icon()
 	_add_sidebar_links()
 	_set_default_relay_url()
 	_seed_module_policy_rows()
 	_report_install_to_platform()
+
+
+def after_migrate():
+	"""Runs on every `bench migrate` — the reliable trigger on managed
+	hosts (Frappe Cloud installs/updates go through migrate). Re-does the
+	desk-visibility setup so a site where the "Noviz AI" icon never showed
+	after install self-heals. Every step is idempotent."""
+	_create_agent_role()
+	_grant_page_doctype_permission()
+	_grant_settings_doctype_permission()
+	_grant_agent_role_to_system_managers()
+	_add_desktop_icon()
+	_add_sidebar_links()
 
 
 def _create_agent_role():
@@ -64,14 +78,36 @@ def _grant_settings_doctype_permission():
 
 
 def _add_desktop_icon():
+	# 1. Make sure the "Noviz AI" Workspace doc is actually in the DB.
+	#    On a managed host the workspace JSON sometimes doesn't get synced
+	#    on install; without the Workspace record NOTHING shows on the
+	#    desk, not even for Administrator. Reloading it from the app's own
+	#    fixture is idempotent and cheap.
+	try:
+		if not frappe.db.exists("Workspace", "Noviz AI"):
+			frappe.reload_doc("noviz_ai", "workspace", "noviz_ai", force=True)
+	except Exception:
+		frappe.log_error(title="Noviz AI: could not sync the Noviz AI workspace")
+
+	# 2. Generate the app's sidebar icon + "Workspace Sidebar" record.
+	#    The helper's name/signature has moved around across Frappe
+	#    versions — try what we know, never let a failure here abort the
+	#    whole install/migrate.
 	try:
 		from frappe.utils.install import auto_generate_icons_and_sidebar
-	except ImportError:
-		frappe.log_error(title="Noviz AI: auto_generate_icons_and_sidebar not available on this Frappe version")
-		return
 
-	auto_generate_icons_and_sidebar(app_name="noviz_ai")
-	frappe.cache.delete_key("desktop_icons")
+		try:
+			auto_generate_icons_and_sidebar(app_name="noviz_ai")
+		except TypeError:
+			auto_generate_icons_and_sidebar("noviz_ai")
+	except Exception:
+		frappe.log_error(title="Noviz AI: auto_generate_icons_and_sidebar unavailable/failed on this Frappe version")
+
+	try:
+		frappe.cache.delete_key("desktop_icons")
+		frappe.clear_cache()
+	except Exception:
+		pass
 
 
 def _add_sidebar_links():

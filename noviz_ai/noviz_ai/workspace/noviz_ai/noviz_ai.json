@@ -27,6 +27,9 @@
  "roles": [
   {
    "role": "Noviz AI Agent"
+  },
+  {
+   "role": "System Manager"
   }
  ],
  "sequence_id": 0.0,

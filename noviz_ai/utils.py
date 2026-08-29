@@ -7,13 +7,10 @@ import frappe
 
 
 def check_app_permission():
-	"""Gates the "Noviz AI" home-screen app tile (hooks.py's own
-	add_to_apps_screen) — the SAME real pattern hrms.hr.utils.
-	check_app_permission uses for its own "Frappe HR" tile. Administrator
-	always sees it; everyone else needs the real "Noviz AI Agent" role —
-	the SAME role that already gates the chat page itself (Page.roles),
-	so this tile never shows for someone who couldn't actually use the
-	chat page it links to anyway."""
-	if frappe.session.user == "Administrator":
-		return True
-	return "Noviz AI Agent" in frappe.get_roles(frappe.session.user)
+	"""The "Noviz AI" tile on the /apps launcher (hooks.py's
+	add_to_apps_screen). Shown to every desk user so the app is
+	discoverable — "Noviz AI exists, ask your admin for access". Actual
+	access is still gated: the chat Workspace/Page need the "Noviz AI
+	Agent" role (assigned per user), and "Noviz AI Settings" needs
+	System Manager."""
+	return bool(frappe.session.user and frappe.session.user != "Guest")
