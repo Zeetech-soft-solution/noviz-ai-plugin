@@ -77,6 +77,32 @@ def _grant_settings_doctype_permission():
 	frappe.clear_cache(doctype="Noviz AI Settings")
 
 
+def _grant_agent_role_to_system_managers():
+	"""Give every existing System Manager the "Noviz AI Agent" role on
+	install/migrate, so whoever set the site up can use the chat straight
+	away instead of assigning the role to themselves first. Idempotent —
+	skips users who already have it, and Administrator/Guest."""
+	try:
+		users = frappe.get_all(
+			"Has Role",
+			filters={"role": "System Manager", "parenttype": "User"},
+			pluck="parent",
+		)
+	except Exception:
+		return
+	for user in set(users):
+		if user in ("Administrator", "Guest"):
+			continue
+		if frappe.db.exists("Has Role", {"parent": user, "role": "Noviz AI Agent", "parenttype": "User"}):
+			continue
+		try:
+			doc = frappe.get_doc("User", user)
+			doc.append("roles", {"role": "Noviz AI Agent"})
+			doc.save(ignore_permissions=True)
+		except Exception:
+			frappe.log_error(title=f"Noviz AI: could not grant agent role to {user}")
+
+
 def _add_desktop_icon():
 	# 1. Make sure the "Noviz AI" Workspace doc is actually in the DB.
 	#    On a managed host the workspace JSON sometimes doesn't get synced
