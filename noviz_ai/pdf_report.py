@@ -18,20 +18,16 @@ def _escape(value) -> str:
 	return frappe.utils.escape_html(str(value))
 
 
-# A table with more than this many columns is cramped on portrait A4 —
-# those default to landscape unless the caller (relay spec) says otherwise.
-_LANDSCAPE_COLUMN_THRESHOLD = 6
-
-
 def render_table_pdf(title: str, columns: list, rows: list, orientation: str = None) -> bytes:
 	"""columns: [{"key": "<real native fieldname>", "label": "<display label>"}, ...]
 	rows: real fetched records (dicts) — one per row, keyed by the SAME
 	native fieldnames `columns` names.
 
-	orientation: "Portrait" | "Landscape". None (the default) auto-picks —
-	landscape once a report has more than _LANDSCAPE_COLUMN_THRESHOLD
-	columns so a wide register/financial report isn't cut off the page.
-	An explicit value from the spec always wins.
+	orientation: "Portrait" | "Landscape". An explicit value from the relay
+	spec always wins (the relay sets it per report from its filter family).
+	None falls back to Landscape, matching ERPNext's own report PDF dialog,
+	which defaults every query/script report to Landscape regardless of
+	width.
 
 	Kept as a real, reusable function (not inlined into one whitelisted
 	endpoint) on purpose — the same real, direct user ask this session
@@ -73,7 +69,7 @@ def render_table_pdf(title: str, columns: list, rows: list, orientation: str = N
 	from frappe.utils.pdf import get_pdf
 
 	if orientation not in ("Portrait", "Landscape"):
-		orientation = "Landscape" if len(columns) > _LANDSCAPE_COLUMN_THRESHOLD else "Portrait"
+		orientation = "Landscape"
 	return get_pdf(html, options={"orientation": orientation, "page-size": "A4"})
 
 

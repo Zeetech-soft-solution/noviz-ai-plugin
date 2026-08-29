@@ -488,7 +488,7 @@ def generate_report_pdf(spec: str):
 	else:
 		frappe.throw('spec.source must be "named_report", "entity_query", or "aggregate_query"')
 
-	pdf_bytes = render_table_pdf(title, columns, rows)
+	pdf_bytes = render_table_pdf(title, columns, rows, parsed.get("orientation"))
 
 	# Same real, standard Frappe "binary file download" response shape
 	# frappe.utils.print_format.download_pdf itself uses — nothing
