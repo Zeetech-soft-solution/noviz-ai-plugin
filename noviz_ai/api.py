@@ -480,7 +480,17 @@ def generate_report_pdf(spec: str):
 		metrics = parsed.get("metrics")
 		if not doctype or not group_by or not metrics:
 			frappe.throw("A doctype, groupBy field, and at least one metric are required.")
-		rows = run_aggregate_query(doctype, group_by, metrics, parsed.get("filters"))
+		limit = parsed.get("limit") or 0
+		link_fields = parsed.get("linkFields")
+		if link_fields:
+			# groupBy result with a linked column (a customer's phone next
+			# to their overdue total) — get_list's dotted Link-field syntax
+			# does the join, no hand SQL.
+			from noviz_ai.pdf_report import run_joined_aggregate
+
+			rows = run_joined_aggregate(doctype, link_fields, group_by, metrics, parsed.get("filters"), limit)
+		else:
+			rows = run_aggregate_query(doctype, group_by, metrics, parsed.get("filters"), limit)
 		# columns is already the relay's own real, complete spec (group
 		# field + each metric's own label) — never re-derived from rows
 		# here, unlike named_report/entity_query above, since a group-by

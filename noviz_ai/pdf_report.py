@@ -147,7 +147,7 @@ def run_named_report(report_name: str, filters: dict) -> list:
 _AGGREGATE_SQL = {"sum": "SUM", "avg": "AVG", "count": "COUNT", "min": "MIN", "max": "MAX"}
 
 
-def run_aggregate_query(doctype: str, group_by_field: str, metrics: list, filters) -> list:
+def run_aggregate_query(doctype: str, group_by_field: str, metrics: list, filters, limit=0) -> list:
 	"""metrics: [{"op": "sum"|"avg"|"count"|"min"|"max", "field": "<real native fieldname>", "label": "..."}]
 	(the relay's own buildReportSpec already validated op/field against
 	this entity's real schema — same trust boundary as fetch_entity_rows'
@@ -187,11 +187,52 @@ def run_aggregate_query(doctype: str, group_by_field: str, metrics: list, filter
 		# _validate_and_parse_field_for_clause — the backtick check runs
 		# BEFORE the function_aliases check) — plain, unquoted is correct.
 		order_by=f"{metric_aliases[0]} desc",
-		limit_page_length=0,  # real, explicit "no cap" — the whole point of this feature over the paginated tool
+		# 0 = no cap (the "complete" PDF); a positive `limit` scopes it to
+		# the same rows on screen for the "this page" PDF.
+		limit_page_length=max(0, int(limit or 0)),
 		as_list=False,
 	)
 	# frappe.get_list's own aggregate columns already come back as plain
 	# numbers keyed by their alias — nothing further to reshape.
+	return [dict(r) for r in rows]
+
+
+def run_joined_aggregate(base_doctype: str, link_fields: list, group_by_field: str, metrics: list, filters, limit=0) -> list:
+	"""run_aggregate_query, plus a field pulled in from a LINKED doctype —
+	a customer's phone (Customer.mobile_no) next to their overdue total,
+	which a single-doctype GROUP BY can't reach. No hand SQL: get_list
+	takes `"<link fieldname>.<target fieldname>"` in `fields` and Frappe 16
+	auto-joins the linked doctype (a Link field is 1:1 from the base, so no
+	fan-out). DocPerm respected exactly as get_list always does.
+
+	link_fields: ["customer.mobile_no", ...] — the relay's buildReportSpec
+	validated each link fieldname / target against the real schema.
+	metrics: same [{"op","field","label"}] shape as run_aggregate_query.
+	limit: 0 = every group ("total" PDF); a positive value scopes it to the
+	same rows on screen ("this page" PDF).
+	Returns the SAME key shape run_aggregate_query gives.
+	"""
+	if not frappe.has_permission(base_doctype, "read"):
+		frappe.throw(f"You do not have permission to read {base_doctype} records.", frappe.PermissionError)
+
+	select_fields = [group_by_field, *[lf for lf in (link_fields or []) if isinstance(lf, str) and "." in lf]]
+	metric_aliases = []
+	for m in metrics:
+		fn = _AGGREGATE_SQL.get(m["op"])
+		if not fn:
+			frappe.throw(f'Unsupported aggregate op "{m["op"]}".')
+		alias = f"{m['op']}_{m['field']}"
+		metric_aliases.append(alias)
+		select_fields.append({fn: m["field"], "as": alias})
+
+	rows = frappe.get_list(
+		base_doctype,
+		filters=filters,
+		fields=select_fields,
+		group_by=group_by_field,
+		order_by=f"{metric_aliases[0]} desc" if metric_aliases else None,
+		limit_page_length=max(0, int(limit or 0)),
+	)
 	return [dict(r) for r in rows]
 
 
