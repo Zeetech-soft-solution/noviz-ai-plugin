@@ -236,6 +236,42 @@ def run_joined_aggregate(base_doctype: str, link_fields: list, group_by_field: s
 	return [dict(r) for r in rows]
 
 
+def run_aggregate_page(base_doctype: str, link_fields: list, group_by_field: str, metrics: list, filters, page_index=1, page_count=20) -> list:
+	"""ONE page of run_joined_aggregate's result — the exact same query
+	(same filters, same group_by, same deterministic sort: first metric,
+	descending) sliced to page `page_index` (1-based) of `page_count`
+	groups. The relay's on-screen table shows page N; "Download this page"
+	sends that same page_index / page_count here and gets a PDF of exactly
+	those rows. link_fields carries a linked column (a customer's phone)
+	just as run_joined_aggregate does; pass [] / None when there isn't one.
+	"""
+	if not frappe.has_permission(base_doctype, "read"):
+		frappe.throw(f"You do not have permission to read {base_doctype} records.", frappe.PermissionError)
+
+	select_fields = [group_by_field, *[lf for lf in (link_fields or []) if isinstance(lf, str) and "." in lf]]
+	metric_aliases = []
+	for m in metrics:
+		fn = _AGGREGATE_SQL.get(m["op"])
+		if not fn:
+			frappe.throw(f'Unsupported aggregate op "{m["op"]}".')
+		alias = f"{m['op']}_{m['field']}"
+		metric_aliases.append(alias)
+		select_fields.append({fn: m["field"], "as": alias})
+
+	size = max(1, int(page_count or 20))
+	start = max(0, (max(1, int(page_index or 1)) - 1) * size)
+	rows = frappe.get_list(
+		base_doctype,
+		filters=filters,
+		fields=select_fields,
+		group_by=group_by_field,
+		order_by=f"{metric_aliases[0]} desc" if metric_aliases else None,
+		limit_start=start,
+		limit_page_length=size,
+	)
+	return [dict(r) for r in rows]
+
+
 def columns_from_rows(rows: list, requested: list = None) -> list:
 	"""Same real default-columns behavior reportGenerator.ts's own
 	columnsFromRows() gives the local product — the union of every real

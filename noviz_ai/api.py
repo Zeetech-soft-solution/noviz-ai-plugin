@@ -482,7 +482,18 @@ def generate_report_pdf(spec: str):
 			frappe.throw("A doctype, groupBy field, and at least one metric are required.")
 		limit = parsed.get("limit") or 0
 		link_fields = parsed.get("linkFields")
-		if link_fields:
+		page_index = parsed.get("pageIndex")
+		if page_index:
+			# "Download this page" — the same grouped query, sliced to the
+			# one page shown on screen. Separate function so the "every
+			# group" path above stays exactly as it was.
+			from noviz_ai.pdf_report import run_aggregate_page
+
+			rows = run_aggregate_page(
+				doctype, link_fields, group_by, metrics, parsed.get("filters"),
+				page_index, parsed.get("pageCount") or 20,
+			)
+		elif link_fields:
 			# groupBy result with a linked column (a customer's phone next
 			# to their overdue total) — get_list's dotted Link-field syntax
 			# does the join, no hand SQL.
