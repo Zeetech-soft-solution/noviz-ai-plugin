@@ -9,6 +9,31 @@
 # reuses infrastructure this box already has working, rather than adding
 # a second, independent PDF-rendering path (fpdf2, reportlab, ...) this
 # thin plugin would then have to maintain forever.
+#
+# ── THE ERPNEXT "REPORT PDF" STANDARD (what render_table_pdf's named-
+#    report path deliberately matches) ────────────────────────────────
+# ERPNext's own Query Report PDF (Menu -> Print / Export -> PDF ->
+# frappe.utils.print_format.report_to_pdf) is:
+#   1. CLIENT-SIDE: the DataTable grid is serialised to an HTML <table>,
+#      each column carrying label / fieldtype / width from the report's
+#      own get_columns().
+#   2. Per-fieldtype formatting applied there: Currency -> grouped digits
+#      + 2 decimals, right-aligned; Int -> grouped integer; Date ->
+#      dd-mm-yyyy; Link/Data -> plain text.
+#   3. HTML + a small-font print stylesheet POSTed to report_to_pdf,
+#      which just wraps it in get_pdf() -> wkhtmltopdf, orientation
+#      Landscape (the default for every query report regardless of
+#      width), page-size A4.
+#   4. Wide reports (General Ledger, AR/AP Summary): ERPNext does NOT
+#      shrink to fit — it lets the table overflow and expects the user
+#      to hide columns (Menu -> Pick Columns) or export to Excel.
+# We reproduce 1-3 exactly (real column meta, fieldtype formatting +
+# right-align, Landscape A4, wkhtmltopdf). For 4 there is no column
+# picker in chat, so instead of overflowing we auto-fit: table-layout
+# fixed at 100% width, the <colgroup> widths as ratios, the body font
+# steps down past ~12 columns, and any cell that still doesn't fit WRAPS
+# (never clips). entity_query / aggregate_query PDFs are NOT reports and
+# keep the plain original render.
 import frappe
 
 
