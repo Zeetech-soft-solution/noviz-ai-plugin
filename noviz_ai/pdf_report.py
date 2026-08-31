@@ -91,11 +91,11 @@ def render_table_pdf(title: str, columns: list, rows: list, orientation: str = N
 	# change is scoped to the named-report path.
 	has_meta = any(c.get("fieldtype") or c.get("width") for c in columns)
 
+	pdf_options = None
 	if has_meta:
-		colgroup = "<colgroup>" + "".join(
-			(f'<col style="width:{int(c["width"])}px" />' if c.get("width") else "<col />")
-			for c in columns
-		) + "</colgroup>"
+		col_px = [int(c["width"]) if c.get("width") else 90 for c in columns]
+		total_px = sum(col_px) + 40  # + h/v borders + a little slack
+		colgroup = "<colgroup>" + "".join(f'<col style="width:{w}px" />' for w in col_px) + "</colgroup>"
 		header_html = "".join(
 			f'<th class="{"num" if is_num(c) else ""}">{_escape(c["label"])}</th>' for c in columns
 		)
@@ -106,23 +106,36 @@ def render_table_pdf(title: str, columns: list, rows: list, orientation: str = N
 			) + "</tr>"
 			for row in rows
 		]
-		# Wide financial reports run 15-18 columns — shrink the body font
-		# once past a dozen so every column still gets real width.
-		font_px = 7 if len(columns) > 12 else 8
+
+		# ── page width ──────────────────────────────────────────────────
+		# A4 landscape is ~1040 CSS px of usable width. If every column's
+		# own real width fits in that, use A4 landscape (the ERPNext
+		# standard). If not — GL, AR/AP Summary, 15-20 columns — WIDEN THE
+		# PAGE instead of cramming: wkhtmltopdf renders a custom-width
+		# page so every column keeps its real width at a normal 8px font.
+		# The result is a wide sheet you scroll right through, exactly
+		# what a person does with such a report in a spreadsheet — never
+		# 20 columns crushed onto one A4 with numbers overlapping.
+		A4_LANDSCAPE_PX = 1040
+		if total_px <= A4_LANDSCAPE_PX:
+			table_width_css = "width: 100%;"
+			pdf_options = {"orientation": "Landscape", "page-size": "A4"}
+		else:
+			table_width_css = f"width: {total_px}px;"
+			page_w_mm = round(total_px * 25.4 / 96) + 12  # css px -> mm + margin
+			pdf_options = {"page-width": f"{page_w_mm}mm", "page-height": "210mm", "margin-top": "8mm", "margin-bottom": "8mm", "margin-left": "6mm", "margin-right": "6mm"}
+
 		style = f"""
-			body {{ font-family: Helvetica, Arial, sans-serif; font-size: {font_px}px; color: #222; }}
+			body {{ font-family: Helvetica, Arial, sans-serif; font-size: 8px; color: #222; }}
 			h2 {{ margin: 0 0 4px 0; font-size: 15px; }}
 			.noviz-report-meta {{ color: #666; margin-bottom: 10px; font-size: 8px; }}
-			table {{ width: 100%; border-collapse: collapse; table-layout: fixed; }}
+			table {{ {table_width_css} border-collapse: collapse; table-layout: fixed; }}
 			th, td {{
 				border: 1px solid #ccc; padding: 2px 4px; vertical-align: top;
-				/* the <colgroup> widths are a starting point; content that
-				   doesn't fit WRAPS onto another line — nothing is ever
-				   clipped or hidden. */
 				white-space: normal; word-break: break-word; overflow-wrap: anywhere;
 			}}
-			/* numbers never wrap mid-value (an amount split across two
-			   lines is unreadable) — they just take the width they need. */
+			/* numbers never wrap mid-value — each numeric column has its
+			   own real width now, so nowrap is safe. */
 			td.num, th.num {{ text-align: right; white-space: nowrap; }}
 			th {{ background: #f2f2f2; font-weight: bold; text-align: left; }}
 			tr:nth-child(even) td {{ background: #fafafa; }}
@@ -160,9 +173,13 @@ def render_table_pdf(title: str, columns: list, rows: list, orientation: str = N
 	"""
 	from frappe.utils.pdf import get_pdf
 
-	if orientation not in ("Portrait", "Landscape"):
-		orientation = "Landscape"
-	return get_pdf(html, options={"orientation": orientation, "page-size": "A4"})
+	if pdf_options is None:
+		# entity_query / aggregate_query — unchanged: A4, orientation from
+		# the relay's filter family (Landscape default).
+		if orientation not in ("Portrait", "Landscape"):
+			orientation = "Landscape"
+		pdf_options = {"orientation": orientation, "page-size": "A4"}
+	return get_pdf(html, options=pdf_options)
 
 
 # Real, honest ceiling — same order of magnitude as reportGenerator.ts's
