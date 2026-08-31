@@ -91,10 +91,14 @@ def render_table_pdf(title: str, columns: list, rows: list, orientation: str = N
 			table {{ width: 100%; border-collapse: collapse; table-layout: fixed; }}
 			th, td {{
 				border: 1px solid #ccc; padding: 2px 4px; vertical-align: top;
-				white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+				/* the <colgroup> widths are a starting point; content that
+				   doesn't fit WRAPS onto another line — nothing is ever
+				   clipped or hidden. */
+				white-space: normal; word-break: break-word; overflow-wrap: anywhere;
 			}}
-			td:first-child, th:first-child {{ white-space: normal; word-break: break-word; }}
-			td.num, th.num {{ text-align: right; }}
+			/* numbers never wrap mid-value (an amount split across two
+			   lines is unreadable) — they just take the width they need. */
+			td.num, th.num {{ text-align: right; white-space: nowrap; }}
 			th {{ background: #f2f2f2; font-weight: bold; text-align: left; }}
 			tr:nth-child(even) td {{ background: #fafafa; }}
 		"""
