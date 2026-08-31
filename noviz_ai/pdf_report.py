@@ -18,48 +18,111 @@ def _escape(value) -> str:
 	return frappe.utils.escape_html(str(value))
 
 
+_NUMERIC_FIELDTYPES = {"Currency", "Float", "Int", "Percent"}
+
+
+def _fmt_cell(value, fieldtype: str) -> str:
+	"""Same read as ERPNext's own grid: a Currency/Float value shows with
+	thousands separators and 2 decimals (right-aligned via the .num class
+	below), an Int as a plain integer, everything else as-is. No currency
+	symbol — the report carries its own `currency` column and mixing a
+	symbol in would only add width."""
+	if value is None or value == "":
+		return ""
+	if fieldtype in ("Currency", "Float", "Percent"):
+		try:
+			return f"{float(value):,.2f}"
+		except (TypeError, ValueError):
+			return _escape(value)
+	if fieldtype == "Int":
+		try:
+			return f"{int(value):,}"
+		except (TypeError, ValueError):
+			return _escape(value)
+	return _escape(value)
+
+
 def render_table_pdf(title: str, columns: list, rows: list, orientation: str = None) -> bytes:
-	"""columns: [{"key": "<real native fieldname>", "label": "<display label>"}, ...]
-	rows: real fetched records (dicts) — one per row, keyed by the SAME
-	native fieldnames `columns` names.
+	"""columns: [{"key": <native fieldname>, "label": <display label>,
+	             "fieldtype"?: <ERPNext fieldtype>, "width"?: <px>}, ...]
+	   — when a named report is the source, these are ERPNext's OWN column
+	   definitions (real labels like "0-30", real Currency/Link fieldtypes,
+	   real widths), so the PDF matches how the report looks in the desk.
+	rows: real fetched records (dicts) keyed by the same native fieldnames.
 
-	orientation: "Portrait" | "Landscape". An explicit value from the relay
-	spec always wins (the relay sets it per report from its filter family).
-	None falls back to Landscape, matching ERPNext's own report PDF dialog,
-	which defaults every query/script report to Landscape regardless of
-	width.
+	orientation: "Portrait" | "Landscape" (relay sets it per filter family);
+	None -> Landscape, matching ERPNext's own report PDF dialog.
 
-	Kept as a real, reusable function (not inlined into one whitelisted
-	endpoint) on purpose — the same real, direct user ask this session
-	also raised: "when we send email the same we need to attach and
-	send". Any future "email this report" feature calls this exact
-	function too (frappe.sendmail's own `attachments` parameter takes
-	{"fname":..., "fcontent":...} — this function's own return value
-	slots straight in), never a second PDF-building implementation.
+	Kept reusable (not inlined into the whitelisted endpoint) so a future
+	"email this report" feature calls the exact same builder.
 	"""
-	header_html = "".join(f"<th>{_escape(c['label'])}</th>" for c in columns)
-	body_rows = []
-	for row in rows:
-		cells = "".join(f"<td>{_escape(row.get(c['key']))}</td>" for c in columns)
-		body_rows.append(f"<tr>{cells}</tr>")
+	def is_num(c):
+		return c.get("fieldtype") in _NUMERIC_FIELDTYPES
+
+	# Column metadata (fieldtype / width) is only present when the source
+	# is a NAMED REPORT — the relay hands it ERPNext's own column defs.
+	# entity_query / aggregate_query PDFs pass plain {key,label} only, and
+	# keep the exact original render (auto layout, word-break wrap) — this
+	# change is scoped to the named-report path.
+	has_meta = any(c.get("fieldtype") or c.get("width") for c in columns)
+
+	if has_meta:
+		colgroup = "<colgroup>" + "".join(
+			(f'<col style="width:{int(c["width"])}px" />' if c.get("width") else "<col />")
+			for c in columns
+		) + "</colgroup>"
+		header_html = "".join(
+			f'<th class="{"num" if is_num(c) else ""}">{_escape(c["label"])}</th>' for c in columns
+		)
+		body_rows = [
+			"<tr>" + "".join(
+				f'<td class="{"num" if is_num(c) else ""}">{_fmt_cell(row.get(c["key"]), c.get("fieldtype"))}</td>'
+				for c in columns
+			) + "</tr>"
+			for row in rows
+		]
+		# Wide financial reports run 15-18 columns — shrink the body font
+		# once past a dozen so every column still gets real width.
+		font_px = 7 if len(columns) > 12 else 8
+		style = f"""
+			body {{ font-family: Helvetica, Arial, sans-serif; font-size: {font_px}px; color: #222; }}
+			h2 {{ margin: 0 0 4px 0; font-size: 15px; }}
+			.noviz-report-meta {{ color: #666; margin-bottom: 10px; font-size: 8px; }}
+			table {{ width: 100%; border-collapse: collapse; table-layout: fixed; }}
+			th, td {{
+				border: 1px solid #ccc; padding: 2px 4px; vertical-align: top;
+				white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+			}}
+			td:first-child, th:first-child {{ white-space: normal; word-break: break-word; }}
+			td.num, th.num {{ text-align: right; }}
+			th {{ background: #f2f2f2; font-weight: bold; text-align: left; }}
+			tr:nth-child(even) td {{ background: #fafafa; }}
+		"""
+	else:
+		colgroup = ""
+		header_html = "".join(f"<th>{_escape(c['label'])}</th>" for c in columns)
+		body_rows = [
+			"<tr>" + "".join(f"<td>{_escape(row.get(c['key']))}</td>" for c in columns) + "</tr>"
+			for row in rows
+		]
+		style = """
+			body { font-family: Helvetica, Arial, sans-serif; font-size: 9px; color: #222; }
+			h2 { margin: 0 0 4px 0; font-size: 16px; }
+			.noviz-report-meta { color: #666; margin-bottom: 12px; font-size: 9px; }
+			table { width: 100%; border-collapse: collapse; }
+			th, td { border: 1px solid #ccc; padding: 4px 6px; text-align: left; word-break: break-word; }
+			th { background: #f2f2f2; font-weight: bold; }
+			tr:nth-child(even) td { background: #fafafa; }
+		"""
 
 	html = f"""
 	<html>
-	<head>
-		<style>
-			body {{ font-family: Helvetica, Arial, sans-serif; font-size: 9px; color: #222; }}
-			h2 {{ margin: 0 0 4px 0; font-size: 16px; }}
-			.noviz-report-meta {{ color: #666; margin-bottom: 12px; font-size: 9px; }}
-			table {{ width: 100%; border-collapse: collapse; }}
-			th, td {{ border: 1px solid #ccc; padding: 4px 6px; text-align: left; word-break: break-word; }}
-			th {{ background: #f2f2f2; font-weight: bold; }}
-			tr:nth-child(even) td {{ background: #fafafa; }}
-		</style>
-	</head>
+	<head><style>{style}</style></head>
 	<body>
 		<h2>{_escape(title)}</h2>
 		<div class="noviz-report-meta">{len(rows)} row(s) — generated {frappe.utils.now()}</div>
 		<table>
+			{colgroup}
 			<thead><tr>{header_html}</tr></thead>
 			<tbody>{"".join(body_rows)}</tbody>
 		</table>
@@ -110,20 +173,57 @@ def fetch_entity_rows(doctype: str, fields: list, filters, limit=None, order_by=
 	return [dict(r) for r in rows]
 
 
-def run_named_report(report_name: str, filters: dict) -> list:
+def _report_column_meta(message: dict) -> list:
+	"""ERPNext's own column definitions for a query report, normalised to
+	the shape render_table_pdf wants: {key, label, fieldtype, width}. The
+	report's `columns` come as {fieldname,label,fieldtype,width} dicts, or
+	(older reports) plain "fieldname:Fieldtype/Options:width" strings —
+	handle both. Returns [] when there's nothing usable, so the caller
+	falls back to columns_from_rows()."""
+	cols = (message or {}).get("columns") or []
+	out = []
+	for c in cols:
+		if isinstance(c, dict):
+			key = c.get("fieldname") or c.get("label")
+			if not key:
+				continue
+			out.append({
+				"key": key,
+				"label": c.get("label") or key,
+				"fieldtype": c.get("fieldtype"),
+				"width": c.get("width"),
+			})
+		elif isinstance(c, str) and c:
+			parts = c.split(":")
+			key = parts[0]
+			ftype = parts[1].split("/")[0] if len(parts) > 1 and parts[1] else None
+			width = None
+			if len(parts) > 2 and str(parts[2]).isdigit():
+				width = int(parts[2])
+			out.append({"key": key, "label": key.replace("_", " ").title(), "fieldtype": ftype, "width": width})
+	return out
+
+
+def run_named_report(report_name: str, filters: dict):
 	"""Real ERPNext named report (General Ledger, Profit and Loss, ...) —
 	frappe.desk.query_report.run() is the exact same real, whitelisted
 	function ERPNext's own desk Query Report screen calls, real
 	permission checks (raises frappe.PermissionError for a report this
-	session's real role can't access) included. Shared by dispatcher.py's
-	own (now relay-unreachable, but still real/callable) run_report kind
-	and generate_report_pdf below — one real implementation, not two."""
+	session's real role can't access) included.
+
+	Returns (rows, columns): rows are the normalised dict rows;
+	columns are ERPNext's OWN column defs ({key,label,fieldtype,width}) so
+	generate_report_pdf can render the PDF the way the report actually
+	looks in the desk (real labels like "0-30", Currency right-align,
+	real widths) instead of guessing from row keys. columns is [] for a
+	report with no usable metadata — caller falls back to
+	columns_from_rows()."""
 	from frappe.desk.query_report import run as run_query_report
 
 	message = run_query_report(report_name=report_name, filters=filters or {})
 	from noviz_ai.dispatcher import _normalize_report_result
 
-	return _normalize_report_result(message)
+	return _normalize_report_result(message), _report_column_meta(message)
 
 
 # The complete, unpaginated version of analytics.aggregate/

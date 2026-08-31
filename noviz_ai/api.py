@@ -452,8 +452,18 @@ def generate_report_pdf(spec: str):
 		report_name = parsed.get("reportName")
 		if not report_name:
 			frappe.throw("A report name is required.")
-		rows = run_named_report(report_name, parsed.get("reportFilters"))
-		if not columns:
+		rows, report_columns = run_named_report(report_name, parsed.get("reportFilters"))
+		if report_columns:
+			# ERPNext's own column defs (real labels, Currency fieldtype,
+			# real widths) — render the PDF the way the report looks in
+			# the desk. A relay-supplied `columns` subset still narrows.
+			if columns:
+				wanted = {c["key"] for c in columns}
+				narrowed = [c for c in report_columns if c["key"] in wanted]
+				columns = narrowed or report_columns
+			else:
+				columns = report_columns
+		elif not columns:
 			columns = columns_from_rows(rows)
 		else:
 			columns = columns_from_rows(rows, [c["key"] for c in columns])
