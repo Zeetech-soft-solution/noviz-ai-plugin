@@ -39,7 +39,7 @@ def _normalize_report_result(message: dict):
 	result = message["result"]
 	columns = message.get("columns") or []
 	if result and not isinstance(result[0], list):
-		return result  # already a list of dicts
+		return [r for r in result if isinstance(r, dict)]  # dict rows only — ERPNext appends a positional "Total" list-row to AR/AP Summary, GL, Trial Balance, etc.
 	keys = []
 	for c in columns:
 		if isinstance(c, str):
