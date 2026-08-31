@@ -93,12 +93,22 @@ def render_table_pdf(title: str, columns: list, rows: list, orientation: str = N
 
 	pdf_options = None
 	if has_meta:
-		col_px = [int(c["width"]) if c.get("width") else 90 for c in columns]
-		total_px = sum(col_px) + 40  # + h/v borders + a little slack
-		colgroup = "<colgroup>" + "".join(f'<col style="width:{w}px" />' for w in col_px) + "</colgroup>"
-		header_html = "".join(
-			f'<th class="{"num" if is_num(c) else ""}">{_escape(c["label"])}</th>' for c in columns
-		)
+		# ── the ERPNext report-PDF standard (see the header comment) ────
+		# A4, orientation from the relay (Landscape default for reports),
+		# a plain auto-layout <table> — wkhtmltopdf's smart-shrinking
+		# (on by default in get_pdf) scales a wide table to fit the page,
+		# which is exactly what Frappe's own report_to_pdf relies on. NO
+		# table-layout:fixed, NO forced width, NO custom page size — those
+		# fight the smart-shrink. Font steps down at the same thresholds
+		# Frappe's own print_template uses (4pt past 20 columns), numbers
+		# right-aligned, a real column's width becomes its min-width.
+		n = len(columns)
+		font_px = 4 if n > 20 else 6 if n > 12 else 8
+		th_cells = []
+		for c in columns:
+			w = f' style="min-width:{int(c["width"])}px"' if c.get("width") else ""
+			th_cells.append(f'<th class="{"num" if is_num(c) else ""}"{w}>{_escape(c["label"])}</th>')
+		header_html = "".join(th_cells)
 		body_rows = [
 			"<tr>" + "".join(
 				f'<td class="{"num" if is_num(c) else ""}">{_fmt_cell(row.get(c["key"]), c.get("fieldtype"))}</td>'
@@ -106,36 +116,17 @@ def render_table_pdf(title: str, columns: list, rows: list, orientation: str = N
 			) + "</tr>"
 			for row in rows
 		]
-
-		# ── page width ──────────────────────────────────────────────────
-		# A4 landscape is ~1040 CSS px of usable width. If every column's
-		# own real width fits in that, use A4 landscape (the ERPNext
-		# standard). If not — GL, AR/AP Summary, 15-20 columns — WIDEN THE
-		# PAGE instead of cramming: wkhtmltopdf renders a custom-width
-		# page so every column keeps its real width at a normal 8px font.
-		# The result is a wide sheet you scroll right through, exactly
-		# what a person does with such a report in a spreadsheet — never
-		# 20 columns crushed onto one A4 with numbers overlapping.
-		A4_LANDSCAPE_PX = 1040
-		if total_px <= A4_LANDSCAPE_PX:
-			table_width_css = "width: 100%;"
-			pdf_options = {"orientation": "Landscape", "page-size": "A4"}
-		else:
-			table_width_css = f"width: {total_px}px;"
-			page_w_mm = round(total_px * 25.4 / 96) + 12  # css px -> mm + margin
-			pdf_options = {"page-width": f"{page_w_mm}mm", "page-height": "210mm", "margin-top": "8mm", "margin-bottom": "8mm", "margin-left": "6mm", "margin-right": "6mm"}
-
+		colgroup = ""
+		pdf_options = {"orientation": orientation if orientation in ("Portrait", "Landscape") else "Landscape", "page-size": "A4"}
 		style = f"""
-			body {{ font-family: Helvetica, Arial, sans-serif; font-size: 8px; color: #222; }}
-			h2 {{ margin: 0 0 4px 0; font-size: 15px; }}
-			.noviz-report-meta {{ color: #666; margin-bottom: 10px; font-size: 8px; }}
-			table {{ {table_width_css} border-collapse: collapse; table-layout: fixed; }}
+			body {{ font-family: Helvetica, Arial, sans-serif; font-size: {font_px}px; color: #222; }}
+			h2 {{ margin: 0 0 4px 0; font-size: 14px; }}
+			.noviz-report-meta {{ color: #666; margin-bottom: 8px; font-size: 8px; }}
+			table {{ border-collapse: collapse; }}
 			th, td {{
 				border: 1px solid #ccc; padding: 2px 4px; vertical-align: top;
-				white-space: normal; word-break: break-word; overflow-wrap: anywhere;
+				word-break: break-word; overflow-wrap: anywhere;
 			}}
-			/* numbers never wrap mid-value — each numeric column has its
-			   own real width now, so nowrap is safe. */
 			td.num, th.num {{ text-align: right; white-space: nowrap; }}
 			th {{ background: #f2f2f2; font-weight: bold; text-align: left; }}
 			tr:nth-child(even) td {{ background: #fafafa; }}
@@ -250,6 +241,41 @@ def _report_column_meta(message: dict) -> list:
 	return out
 
 
+def _tenant_saved_columns(report_name: str) -> list:
+	"""If someone on this ERPNext site has trimmed this standard report in
+	the desk (per-column "Remove Column", then Menu -> Save), Frappe stored
+	that as a Custom Report row — is_standard "No", reference_report set to
+	this standard report, and json.columns holding the visible subset.
+	Return that subset's real fieldnames (most-recently-saved wins), or []
+	if nobody's trimmed it. We then narrow the PDF to exactly those
+	columns — the report "template" the tenant already defined for
+	themselves, honoured without them having to re-pick it in chat."""
+	name = frappe.db.get_value(
+		"Report",
+		{"reference_report": report_name, "is_standard": "No", "report_type": "Custom Report", "disabled": 0},
+		"name",
+		order_by="modified desc",
+	)
+	if not name:
+		return []
+	raw = frappe.db.get_value("Report", name, "json")
+	if not raw:
+		return []
+	try:
+		saved = frappe.parse_json(raw)
+	except Exception:
+		return []
+	wanted = []
+	for c in (saved.get("columns") or []):
+		if isinstance(c, dict):
+			fn = c.get("fieldname") or c.get("id")
+			if fn:
+				wanted.append(fn)
+		elif isinstance(c, str) and c:
+			wanted.append(c.split(":")[0])
+	return wanted
+
+
 def run_named_report(report_name: str, filters: dict):
 	"""Real ERPNext named report (General Ledger, Profit and Loss, ...) —
 	frappe.desk.query_report.run() is the exact same real, whitelisted
@@ -257,19 +283,28 @@ def run_named_report(report_name: str, filters: dict):
 	permission checks (raises frappe.PermissionError for a report this
 	session's real role can't access) included.
 
-	Returns (rows, columns): rows are the normalised dict rows;
-	columns are ERPNext's OWN column defs ({key,label,fieldtype,width}) so
-	generate_report_pdf can render the PDF the way the report actually
-	looks in the desk (real labels like "0-30", Currency right-align,
-	real widths) instead of guessing from row keys. columns is [] for a
-	report with no usable metadata — caller falls back to
-	columns_from_rows()."""
+	Returns (rows, columns): rows are the normalised dict rows; columns
+	are ERPNext's OWN column defs ({key,label,fieldtype,width}) so
+	generate_report_pdf renders the PDF the way the report looks in the
+	desk (real labels like "0-30", Currency right-align, real widths). If
+	the tenant has a SAVED trimmed version of this report (a Custom Report
+	row), columns is narrowed to that saved subset. columns is [] only
+	when the report exposes no usable metadata — caller then falls back
+	to columns_from_rows()."""
 	from frappe.desk.query_report import run as run_query_report
 
 	message = run_query_report(report_name=report_name, filters=filters or {})
 	from noviz_ai.dispatcher import _normalize_report_result
 
-	return _normalize_report_result(message), _report_column_meta(message)
+	rows = _normalize_report_result(message)
+	columns = _report_column_meta(message)
+	if columns:
+		saved = _tenant_saved_columns(report_name)
+		if saved:
+			narrowed = [c for c in columns if c["key"] in saved]
+			if narrowed:
+				columns = narrowed
+	return rows, columns
 
 
 # The complete, unpaginated version of analytics.aggregate/
