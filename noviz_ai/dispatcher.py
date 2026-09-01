@@ -81,7 +81,17 @@ def execute_call_spec(spec: dict):
 		from frappe.desk.query_report import run as run_query_report
 
 		message = run_query_report(report_name=report_name, filters=spec.get("reportFilters") or {})
-		return _normalize_report_result(message)
+		# _json_safe here for the SAME reason every other branch uses it:
+		# a report's rows carry real Python date/datetime/Decimal objects
+		# (AR/AP Summary have due_date/posting_date columns, Decimal
+		# amounts) that stdlib json — which `requests` uses to POST this
+		# result back to the relay — can't encode. Without this the plugin
+		# crashes in its own _post with "Object of type date is not JSON
+		# serializable ... when serializing dict item 'result'" before the
+		# request ever leaves. _normalize_report_result runs first (its
+		# positional-Total-row / column-zip handling), then the whole
+		# thing is made JSON-safe.
+		return _json_safe(_normalize_report_result(message))
 
 	if kind == "list_inbox_emails":
 		# A live, read-only IMAP fetch (see email_reader.py's own doc
