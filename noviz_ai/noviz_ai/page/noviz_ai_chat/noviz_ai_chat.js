@@ -54,6 +54,19 @@ if (!document.getElementById('noviz-ai-chat-style')) {
 		}
 		.noviz-ai-chat-msg-assistant p:last-child { margin-bottom: 0; }
 
+		/* Staged "thinking" indicator. The whole turn (relay reasoning +
+		   ERPNext fetches) runs server-side in one request, so we can't
+		   stream real phase labels — the placeholder cycles through the
+		   stages a turn genuinely goes through, until the real reply
+		   replaces it. */
+		.noviz-ai-thinking { display: inline-flex; align-items: center; gap: 8px; color: var(--text-muted, #8d99a6); }
+		.noviz-ai-thinking-dot {
+			width: 6px; height: 6px; border-radius: 50%; background: #4FBB9C; flex-shrink: 0;
+			animation: noviz-ai-pulse 1s ease-in-out infinite;
+		}
+		.noviz-ai-thinking-label { transition: opacity 0.2s ease; }
+		@keyframes noviz-ai-pulse { 0%, 100% { opacity: 0.25; } 50% { opacity: 1; } }
+
 		/* Matches the class names rendererRegistry's own tableRenderer.ts/
 		   cardsRenderer.ts emit — this page has no access to Pro's own
 		   bundled CSS, so the same visual language is redefined here,
@@ -250,12 +263,14 @@ class NovizAIChat {
 			this.sending = true;
 			this.$sendBtn.prop('disabled', true);
 			const $placeholder = this.addMessage('assistant', __('Loading...'));
+			const stopThinking = this._startThinking($placeholder);
 			frappe.call({
 				method: 'noviz_ai.api.next_page',
 				args: { tool: payload.tool, args: JSON.stringify(payload.args || {}) },
-				callback: (r) => this._renderTurnResult($placeholder, r.message),
-				error: () => $placeholder.remove(),
+				callback: (r) => { stopThinking(); this._renderTurnResult($placeholder, r.message); },
+				error: () => { stopThinking(); $placeholder.remove(); },
 				always: () => {
+					stopThinking();
 					this.sending = false;
 					this.$sendBtn.prop('disabled', false);
 				},
@@ -401,6 +416,36 @@ class NovizAIChat {
 	 *  rendered text reply, same "text explains, table shows the real
 	 *  rows" layout Pro's own chat uses. A per-message Export PDF button
 	 *  is added right below it, matching Pro's own placement. */
+	/** Turn the given assistant bubble into a staged, animated "thinking"
+	 *  indicator and return a stop() to call the moment the real reply
+	 *  arrives (or the request errors). The turn itself is one blocking
+	 *  server request — these stages are the phases a turn really passes
+	 *  through, shown on a timer so the wait doesn't feel dead, not live
+	 *  progress from the server. */
+	_startThinking($bubble) {
+		const stages = [
+			__('Thinking…'),
+			__('Fetching your ERPNext data…'),
+			__('Reasoning over the results…'),
+			__('Checking the numbers…'),
+			__('Putting your answer together…'),
+		];
+		$bubble.empty().append(
+			$('<span class="noviz-ai-thinking"></span>')
+				.append('<span class="noviz-ai-thinking-dot"></span>')
+				.append($('<span class="noviz-ai-thinking-label"></span>').text(stages[0]))
+		);
+		let i = 0;
+		const $label = $bubble.find('.noviz-ai-thinking-label');
+		const timer = setInterval(() => {
+			if (!$label.closest('body').length) { clearInterval(timer); return; }
+			i = (i + 1) % stages.length;
+			$label.css('opacity', 0);
+			setTimeout(() => $label.text(stages[i]).css('opacity', 1), 200);
+		}, 2600);
+		return () => clearInterval(timer);
+	}
+
 	addMessage(role, text, html) {
 		const cssClass = role === 'user' ? 'noviz-ai-chat-msg-user' : 'noviz-ai-chat-msg-assistant';
 		const $msg = $(`<div class="noviz-ai-chat-msg ${cssClass}"></div>`).appendTo(this.$log);
@@ -465,18 +510,21 @@ class NovizAIChat {
 		if (!promptOverride) this.$input.val('');
 		if (!hidden) this.addMessage('user', prompt);
 		const $thinking = this.addMessage('assistant', __('Thinking...'));
+		const stopThinking = this._startThinking($thinking);
 
 		frappe.call({
 			method: 'noviz_ai.api.send_message',
 			args: { prompt: prompt, previous_turn_id: this.lastTurnId },
-			callback: (r) => this._renderTurnResult($thinking, r.message),
+			callback: (r) => { stopThinking(); this._renderTurnResult($thinking, r.message); },
 			error: () => {
 				// frappe.call already shows the real server error to the
 				// user via its own dialog — just clear the placeholder
 				// rather than showing a second, redundant message.
+				stopThinking();
 				$thinking.remove();
 			},
 			always: () => {
+				stopThinking();
 				this.sending = false;
 				this.$sendBtn.prop('disabled', false);
 			},
@@ -601,6 +649,7 @@ class NovizAIChat {
 		this.$sendBtn.prop('disabled', true);
 		this.addMessage('user', note ? `[${__('scanned image')}] ${note}` : `[${__('scanned image')}]`);
 		const $thinking = this.addMessage('assistant', __('Reading the image...'));
+		const stopThinking = this._startThinking($thinking);
 
 		const formData = new FormData();
 		formData.append('image', file);
@@ -619,11 +668,13 @@ class NovizAIChat {
 				}
 				return res.json();
 			})
-			.then((data) => this._renderTurnResult($thinking, data.message))
+			.then((data) => { stopThinking(); this._renderTurnResult($thinking, data.message); })
 			.catch((err) => {
+				stopThinking();
 				$thinking.html(frappe.markdown(err.message || __('Scan failed.')));
 			})
 			.finally(() => {
+				stopThinking();
 				this.sending = false;
 				this.$sendBtn.prop('disabled', false);
 			});
