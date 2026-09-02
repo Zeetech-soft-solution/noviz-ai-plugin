@@ -193,9 +193,9 @@ class NovizAIChat {
 				</div>
 				<div class="noviz-ai-chat-log"></div>
 				<div class="noviz-ai-chat-input-row">
-					<button type="button" class="noviz-ai-chat-icon-btn noviz-ai-attach-btn" title="${__('Attach an image')}">📎</button>
+					<button type="button" class="noviz-ai-chat-icon-btn noviz-ai-attach-btn" title="${__('Attach an image or PDF')}">📎</button>
 					<button type="button" class="noviz-ai-chat-icon-btn noviz-ai-camera-btn" title="${__('Scan with camera')}">📷</button>
-					<input type="file" class="noviz-ai-file-input" accept="image/jpeg,image/png,image/webp" style="display:none" />
+					<input type="file" class="noviz-ai-file-input" accept="image/jpeg,image/png,image/webp,application/pdf" style="display:none" />
 					<input type="text" class="form-control noviz-ai-chat-input"
 						placeholder="${__('Ask about your ERPNext data...')}" />
 					<button class="btn btn-primary btn-sm noviz-ai-chat-send">${__('Send')}</button>
@@ -209,10 +209,12 @@ class NovizAIChat {
 		this.$fileInput = this.$container.find('.noviz-ai-file-input');
 
 		this.$sendBtn.on('click', () => this.send());
-		// Real port of Pro's own Composer.tsx attach/camera pair — 2MB cap
-		// (same limit the relay's own scan route enforces server-side via
-		// multer), image/jpeg|png|webp only.
+		// Real port of Pro's own Composer.tsx attach/camera pair. Size caps
+		// match what the relay's own scan route enforces server-side via
+		// multer: an image (jpeg|png|webp) at 2MB, a PDF at 5MB (a real
+		// customer PO usually arrives as a PDF, added 2026-09-02).
 		const MAX_IMAGE_BYTES = 2 * 1024 * 1024;
+		const MAX_PDF_BYTES = 5 * 1024 * 1024;
 		this.$container.find('.noviz-ai-attach-btn').on('click', () => {
 			if (!this.sending) this.$fileInput.trigger('click');
 		});
@@ -220,8 +222,11 @@ class NovizAIChat {
 			const file = e.target.files && e.target.files[0];
 			e.target.value = '';
 			if (!file) return;
-			if (file.size > MAX_IMAGE_BYTES) {
-				frappe.msgprint(__('That image is too large — please pick one under 2MB.'));
+			const isPdf = file.type === 'application/pdf' || /\.pdf$/i.test(file.name || '');
+			if (file.size > (isPdf ? MAX_PDF_BYTES : MAX_IMAGE_BYTES)) {
+				frappe.msgprint(isPdf
+					? __('That PDF is too large — please pick one under 5MB.')
+					: __('That image is too large — please pick one under 2MB.'));
 				return;
 			}
 			this.promptForNoteAndSend(file);
@@ -647,8 +652,10 @@ class NovizAIChat {
 	sendImage(file, note) {
 		this.sending = true;
 		this.$sendBtn.prop('disabled', true);
-		this.addMessage('user', note ? `[${__('scanned image')}] ${note}` : `[${__('scanned image')}]`);
-		const $thinking = this.addMessage('assistant', __('Reading the image...'));
+		const isPdf = file && (file.type === 'application/pdf' || /\.pdf$/i.test(file.name || ''));
+		const label = isPdf ? __('scanned PDF') : __('scanned image');
+		this.addMessage('user', note ? `[${label}] ${note}` : `[${label}]`);
+		const $thinking = this.addMessage('assistant', isPdf ? __('Reading the PDF...') : __('Reading the image...'));
 		const stopThinking = this._startThinking($thinking);
 
 		const formData = new FormData();
