@@ -20,21 +20,13 @@ app_home = "/desk/noviz-ai-chat"
 
 # required_apps = []
 
-# Each item in the list will be shown as an app in the apps page.
-# `logo` is REQUIRED here — frappe.apps.get_apps() reads the tile icon
-# from THIS entry, not from app_logo_url above; without it get_apps()
-# returns logo:null and the /apps page shows only a lettered fallback
-# (confirmed live: the SVG served fine at 200 but the tile stayed blank
-# until this key was added).
-add_to_apps_screen = [
-	{
-		"name": "noviz_ai",
-		"title": "Noviz AI",
-		"logo": "/assets/noviz_ai/images/icon-master.svg",
-		"route": app_home,
-		"has_permission": "noviz_ai.utils.check_app_permission",
-	}
-]
+# NOT registered on the /apps launcher — that tile was the SECOND icon
+# after install (alongside the "ERP Assistant" desk workspace + its
+# Desktop Icon from install.py). The single desk entry is the workspace
+# only. install.py's _add_desktop_icon still sets the workspace's Desktop
+# Icon logo_url to the brand SVG, so the icon stays crisp — this change
+# removes only the duplicate, not the icon.
+# add_to_apps_screen = [ { name/title/logo/route/has_permission } ]
 
 # Includes in <head>
 # ------------------
