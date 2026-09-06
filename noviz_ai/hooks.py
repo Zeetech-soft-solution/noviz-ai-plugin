@@ -20,21 +20,14 @@ app_home = "/desk/noviz-ai-chat"
 
 # required_apps = []
 
-# Each item in the list will be shown as an app in the apps page.
-# `logo` is REQUIRED here — frappe.apps.get_apps() reads the tile icon
-# from THIS entry, not from app_logo_url above; without it get_apps()
-# returns logo:null and the /apps page shows only a lettered fallback
-# (confirmed live: the SVG served fine at 200 but the tile stayed blank
-# until this key was added).
-add_to_apps_screen = [
-	{
-		"name": "noviz_ai",
-		"title": "Noviz AI",
-		"logo": "/assets/noviz_ai/images/icon-master.svg",
-		"route": app_home,
-		"has_permission": "noviz_ai.utils.check_app_permission",
-	}
-]
+# Deliberately NOT on the /apps launcher. The single desk entry is the
+# "Noviz AI" Workspace (install.py _ensure_noviz_workspace, synced from
+# workspace/noviz_ai) — one tile in the desk workspace grid / left nav,
+# whose landing page is one big "Open Noviz AI Chat" shortcut. A second
+# /apps tile is exactly the "two icons after install" this plugin must
+# not create, and (when the tile title matches the workspace name) makes
+# the desk sidebar header print "Noviz AI" twice.
+# add_to_apps_screen = [...]
 
 # Includes in <head>
 # ------------------

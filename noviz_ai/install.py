@@ -11,8 +11,7 @@ def after_install():
 	_grant_page_doctype_permission()
 	_grant_settings_doctype_permission()
 	_grant_agent_role_to_system_managers()
-	_add_desktop_icon()
-	_add_sidebar_links()
+	_ensure_noviz_workspace()
 	_set_default_relay_url()
 	_seed_module_policy_rows()
 	_report_install_to_platform()
@@ -20,15 +19,15 @@ def after_install():
 
 def after_migrate():
 	"""Runs on every `bench migrate` — the reliable trigger on managed
-	hosts (Frappe Cloud installs/updates go through migrate). Re-does the
-	desk-visibility setup so a site where the "Noviz AI" icon never showed
-	after install self-heals. Every step is idempotent."""
+	hosts (Frappe Cloud installs/updates go through migrate). Re-asserts
+	the role/permission grants and re-syncs the single "Noviz AI"
+	workspace (pruning the legacy "ERP Assistant" artefacts) so an
+	upgraded site self-heals. Every step is idempotent."""
 	_create_agent_role()
 	_grant_page_doctype_permission()
 	_grant_settings_doctype_permission()
 	_grant_agent_role_to_system_managers()
-	_add_desktop_icon()
-	_add_sidebar_links()
+	_ensure_noviz_workspace()
 
 
 def _create_agent_role():
@@ -107,30 +106,64 @@ def _grant_agent_role_to_system_managers():
 			frappe.log_error(title=f"Noviz AI: could not grant agent role to {user}")
 
 
-def _add_desktop_icon():
-	# 1. Make sure the "ERP Assistant" Workspace doc is in the DB.
-	#    On a managed host the workspace JSON sometimes doesn't get synced
-	#    on install; without the Workspace record NOTHING shows on the
-	#    desk, not even for Administrator. Reloading it from the app's own
-	#    fixture is idempotent and cheap.
-	#    The workspace used to be called "Noviz AI" — same name as the app
-	#    title — which made the desk sidebar header print "Noviz AI" twice
-	#    (workspace name on top, app title beneath). Renamed to
-	#    "ERP Assistant"; drop the old record on upgrade.
-	try:
-		for _stale in ("Noviz AI",):
-			if frappe.db.exists("Workspace", _stale):
-				frappe.delete_doc("Workspace", _stale, force=True, ignore_permissions=True)
-			if frappe.db.exists("Workspace Sidebar", _stale):
-				frappe.delete_doc("Workspace Sidebar", _stale, force=True, ignore_permissions=True)
-		frappe.reload_doc("noviz_ai", "workspace", "erp_assistant", force=True)
-	except Exception:
-		frappe.log_error(title="Noviz AI: could not sync the ERP Assistant workspace")
+# The ONE desk entry: a single public "Noviz AI" Workspace (synced from
+# workspace/noviz_ai) that shows in the desk workspace grid / left nav.
+# Its landing page is just a header + one big "Open Noviz AI Chat"
+# shortcut. There is deliberately NO /apps launcher tile (hooks.py's
+# add_to_apps_screen is disabled) — the workspace IS the single entry
+# point, so nothing doubles up ("two icons after install").
+_CHAT_PAGE = "noviz-ai-chat"
+# Everything an OLDER build of this app created that must be removed on
+# upgrade so only the one "Noviz AI" workspace remains.
+_LEGACY_LABELS = ("ERP Assistant",)
 
-	# 2. Generate the app's sidebar icon + "Workspace Sidebar" record.
-	#    The helper's name/signature has moved around across Frappe
-	#    versions — try what we know, never let a failure here abort the
-	#    whole install/migrate.
+
+def _ensure_noviz_workspace():
+	"""Sync the single 'Noviz AI' workspace from its fixture and tear down
+	every legacy desk artefact ('ERP Assistant' workspace + Workspace
+	Sidebar + Desktop Icon, and any stale per-user private copies of the
+	Noviz workspaces). Idempotent — safe on install AND every migrate."""
+	# 1. drop the legacy 'ERP Assistant' records + any PRIVATE per-user
+	#    copies of either name (Frappe clones a public workspace per user
+	#    the first time they personalise the desk; a stale clone keeps the
+	#    old content and shows as a duplicate).
+	try:
+		for w in frappe.get_all(
+			"Workspace",
+			filters=[["label", "in", (*_LEGACY_LABELS, "Noviz AI")]],
+			fields=["name", "label", "for_user", "public"],
+		):
+			is_keeper = w["label"] == "Noviz AI" and w["public"] and not w["for_user"]
+			if is_keeper:
+				continue
+			try:
+				frappe.delete_doc("Workspace", w["name"], force=True, ignore_permissions=True, delete_permanently=True)
+			except Exception:
+				frappe.log_error(title=f"Noviz AI: could not drop Workspace '{w['name']}'")
+	except Exception:
+		frappe.log_error(title="Noviz AI: could not enumerate legacy workspaces")
+
+	for label in _LEGACY_LABELS:
+		if frappe.db.exists("Workspace Sidebar", label):
+			try:
+				frappe.delete_doc("Workspace Sidebar", label, force=True, ignore_permissions=True)
+			except Exception:
+				pass
+	for label in (*_LEGACY_LABELS, "Noviz AI"):
+		for di in frappe.get_all("Desktop Icon", filters={"label": label}, pluck="name"):
+			try:
+				frappe.delete_doc("Desktop Icon", di, force=True, ignore_permissions=True)
+			except Exception:
+				pass
+
+	# 2. (re)sync the 'Noviz AI' workspace from the app's own fixture —
+	#    on a managed host the JSON sometimes doesn't sync on install.
+	try:
+		frappe.reload_doc("noviz_ai", "workspace", "noviz_ai", force=True)
+	except Exception:
+		frappe.log_error(title="Noviz AI: could not sync the Noviz AI workspace")
+
+	# 3. give the workspace a real left-nav sub-sidebar (Chat + Settings).
 	try:
 		from frappe.utils.install import auto_generate_icons_and_sidebar
 
@@ -139,57 +172,35 @@ def _add_desktop_icon():
 		except TypeError:
 			auto_generate_icons_and_sidebar("noviz_ai")
 	except Exception:
-		frappe.log_error(title="Noviz AI: auto_generate_icons_and_sidebar unavailable/failed on this Frappe version")
-
-	# 3. Point the "ERP Assistant" Desktop Icon at the real brand SVG.
-	#    frappe's sidebar_header.js renders the mark only when it finds a
-	#    NON-hidden Desktop Icon (get_desktop_icon_by_label filters
-	#    hidden != 1) that carries a logo_url — auto_generate creates it
-	#    hidden with no logo, so the header falls back to a lettered "E"
-	#    tile. Un-hide it and set the logo + app.
-	try:
-		for _stale in ("Noviz AI",):
-			for _di in frappe.get_all("Desktop Icon", filters={"label": _stale}, pluck="name"):
-				frappe.delete_doc("Desktop Icon", _di, force=True, ignore_permissions=True)
-		for _di in frappe.get_all("Desktop Icon", filters={"label": "ERP Assistant"}, pluck="name"):
-			frappe.db.set_value("Desktop Icon", _di, {"logo_url": NOVIZ_LOGO, "hidden": 0})
-	except Exception:
-		frappe.log_error(title="Noviz AI: could not set the ERP Assistant desktop-icon logo")
+		pass
+	_sync_sidebar_links()
 
 	try:
 		frappe.cache.delete_key("desktop_icons")
+		frappe.cache.delete_key("bootinfo")
 		frappe.clear_cache()
 	except Exception:
 		pass
 
 
-# The sidebar rows we want, keyed by (link_type, link_to). Frappe's own
-# auto_generate_icons_and_sidebar() creates the first three with a null
-# icon (so they fall back to a generic list glyph) and labels the
-# workspace row "Home" — this pass fixes the label + icon on whatever it
-# made and appends anything missing. Order matches this list.
+# The left-nav rows under the "Noviz AI" workspace — just the two real
+# destinations. auto_generate_icons_and_sidebar seeds a bare workspace
+# row with a null icon; this fixes the labels/icons and appends the rest.
 _SIDEBAR_ROWS = [
-	{"link_type": "Workspace", "link_to": "ERP Assistant", "label": "ERP Assistant", "icon": "bot"},
-	{"link_type": "Page", "link_to": "noviz-ai-chat", "label": "Noviz AI Chat", "icon": "message"},
+	{"link_type": "Page", "link_to": _CHAT_PAGE, "label": "Noviz AI Chat", "icon": "message"},
 	{"link_type": "DocType", "link_to": "Noviz AI Settings", "label": "Noviz AI Settings", "icon": "settings"},
-	{"link_type": "URL", "link_to": None, "url": "mailto:support@noviz.in", "label": "Support", "icon": "help"},
 ]
 
 
-def _add_sidebar_links():
-	if not frappe.db.exists("Workspace Sidebar", "ERP Assistant"):
+def _sync_sidebar_links():
+	if not frappe.db.exists("Workspace Sidebar", "Noviz AI"):
 		return
-	sidebar = frappe.get_doc("Workspace Sidebar", "ERP Assistant")
+	sidebar = frappe.get_doc("Workspace Sidebar", "Noviz AI")
 	changed = False
 
-	# Drop a stray "Email" row an earlier build shipped, and de-dupe rows
-	# that point at the same target (auto_generate can re-add the
-	# workspace "Home" row on a later migrate).
 	seen = set()
 	kept = []
 	for i in sidebar.items:
-		if i.label == "Email":
-			continue
 		key = (i.link_type, i.link_to or i.url or i.label)
 		if key in seen:
 			continue
@@ -200,35 +211,21 @@ def _add_sidebar_links():
 		changed = True
 
 	for want in _SIDEBAR_ROWS:
-		match = None
-		for item in sidebar.items:
-			same_link = item.link_type == want["link_type"] and (
-				want["link_type"] == "URL" or item.link_to == want["link_to"]
-			)
-			if same_link or item.label == want["label"]:
-				match = item
-				break
+		match = next(
+			(it for it in sidebar.items
+			 if (it.link_type == want["link_type"] and it.link_to == want["link_to"]) or it.label == want["label"]),
+			None,
+		)
 		if match:
 			if match.label != want["label"] or match.icon != want["icon"]:
-				match.label = want["label"]
-				match.icon = want["icon"]
+				match.label, match.icon = want["label"], want["icon"]
 				changed = True
 		else:
-			row = {
-				"type": "Link",
-				"label": want["label"],
-				"link_type": want["link_type"],
-				"link_to": want["link_to"],
-				"icon": want["icon"],
-				"indent": 0,
-				"collapsible": 1,
-				"keep_closed": 0,
-				"show_arrow": 0,
-				"child": 0,
-			}
-			if want.get("url"):
-				row["url"] = want["url"]
-			sidebar.append("items", row)
+			sidebar.append("items", {
+				"type": "Link", "label": want["label"], "link_type": want["link_type"],
+				"link_to": want["link_to"], "icon": want["icon"],
+				"indent": 0, "collapsible": 1, "keep_closed": 0, "show_arrow": 0, "child": 0,
+			})
 			changed = True
 
 	if changed:
