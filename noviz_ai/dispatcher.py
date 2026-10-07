@@ -146,7 +146,11 @@ def execute_call_spec(spec: dict):
 		# exact failure SYSTEM_PROMPT's own "STATUS/ENUM FIELDS" section
 		# already warns against for a different cause. A real, explicit
 		# check here makes both paths behave identically and correctly.
-		if not frappe.has_permission(doctype, "read"):
+		# A child table is authorised through its parent (see child_parent_doctype).
+		from noviz_ai.utils import child_parent_doctype
+
+		parent_doctype = child_parent_doctype(doctype, spec.get("filters"))
+		if not frappe.has_permission(doctype, "read", parent_doctype=parent_doctype):
 			frappe.throw(f"Noviz AI: you do not have permission to read {doctype} records.", frappe.PermissionError)
 		# Real bug found live 2026-08-20: "order_by" was never read from
 		# the call spec at all, even though the relay's own tool schema
@@ -165,6 +169,7 @@ def execute_call_spec(spec: dict):
 			order_by=spec.get("order_by"),
 			limit_page_length=spec.get("limit") or 20,
 			limit_start=spec.get("start") or 0,
+			parent_doctype=parent_doctype,
 		)
 		return _json_safe(rows)
 
