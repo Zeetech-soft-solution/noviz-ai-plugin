@@ -36,6 +36,8 @@
 # keep the plain original render.
 import frappe
 
+from noviz_ai.utils import child_parent_doctype
+
 
 def _escape(value) -> str:
 	if value is None:
@@ -192,7 +194,8 @@ def fetch_entity_rows(doctype: str, fields: list, filters, limit=None, order_by=
 	"Download PDF" for a bounded ask ("the last 37 quotations") exports
 	exactly those 37, in that order. Absent (a plain unfiltered list) it
 	stays "every row" up to REPORT_ROW_CAP, unordered."""
-	if not frappe.has_permission(doctype, "read"):
+	parent_doctype = child_parent_doctype(doctype, filters)
+	if not frappe.has_permission(doctype, "read", parent_doctype=parent_doctype):
 		frappe.throw(f"You do not have permission to read {doctype} records.", frappe.PermissionError)
 	page_length = REPORT_ROW_CAP
 	try:
@@ -206,6 +209,7 @@ def fetch_entity_rows(doctype: str, fields: list, filters, limit=None, order_by=
 		filters=filters,
 		order_by=order_by or None,
 		limit_page_length=page_length,
+		parent_doctype=parent_doctype,
 	)
 	return [dict(r) for r in rows]
 
@@ -343,7 +347,8 @@ def run_aggregate_query(doctype: str, group_by_field: str, metrics: list, filter
 	deterministic "who/what has the most" answer analytics.aggregate's
 	own groups already give, never left to chance query-planner order.
 	"""
-	if not frappe.has_permission(doctype, "read"):
+	parent_doctype = child_parent_doctype(doctype, filters)
+	if not frappe.has_permission(doctype, "read", parent_doctype=parent_doctype):
 		frappe.throw(f"You do not have permission to read {doctype} records.", frappe.PermissionError)
 
 	select_fields = [group_by_field]
@@ -372,6 +377,7 @@ def run_aggregate_query(doctype: str, group_by_field: str, metrics: list, filter
 		# the same rows on screen for the "this page" PDF.
 		limit_page_length=max(0, int(limit or 0)),
 		as_list=False,
+		parent_doctype=parent_doctype,
 	)
 	# frappe.get_list's own aggregate columns already come back as plain
 	# numbers keyed by their alias — nothing further to reshape.
@@ -393,7 +399,8 @@ def run_joined_aggregate(base_doctype: str, link_fields: list, group_by_field: s
 	same rows on screen ("this page" PDF).
 	Returns the SAME key shape run_aggregate_query gives.
 	"""
-	if not frappe.has_permission(base_doctype, "read"):
+	parent_doctype = child_parent_doctype(base_doctype, filters)
+	if not frappe.has_permission(base_doctype, "read", parent_doctype=parent_doctype):
 		frappe.throw(f"You do not have permission to read {base_doctype} records.", frappe.PermissionError)
 
 	select_fields = [group_by_field, *[lf for lf in (link_fields or []) if isinstance(lf, str) and "." in lf]]
@@ -413,6 +420,7 @@ def run_joined_aggregate(base_doctype: str, link_fields: list, group_by_field: s
 		group_by=group_by_field,
 		order_by=f"{metric_aliases[0]} desc" if metric_aliases else None,
 		limit_page_length=max(0, int(limit or 0)),
+		parent_doctype=parent_doctype,
 	)
 	return [dict(r) for r in rows]
 
@@ -426,7 +434,8 @@ def run_aggregate_page(base_doctype: str, link_fields: list, group_by_field: str
 	those rows. link_fields carries a linked column (a customer's phone)
 	just as run_joined_aggregate does; pass [] / None when there isn't one.
 	"""
-	if not frappe.has_permission(base_doctype, "read"):
+	parent_doctype = child_parent_doctype(base_doctype, filters)
+	if not frappe.has_permission(base_doctype, "read", parent_doctype=parent_doctype):
 		frappe.throw(f"You do not have permission to read {base_doctype} records.", frappe.PermissionError)
 
 	select_fields = [group_by_field, *[lf for lf in (link_fields or []) if isinstance(lf, str) and "." in lf]]
@@ -449,6 +458,7 @@ def run_aggregate_page(base_doctype: str, link_fields: list, group_by_field: str
 		order_by=f"{metric_aliases[0]} desc" if metric_aliases else None,
 		limit_start=start,
 		limit_page_length=size,
+		parent_doctype=parent_doctype,
 	)
 	return [dict(r) for r in rows]
 
