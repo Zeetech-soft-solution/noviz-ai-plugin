@@ -10,7 +10,7 @@ import json
 
 import frappe
 
-SUPPORTED_KINDS = {"get_list", "get_doc", "create_doc", "update_doc", "reply_communication", "send_communication", "mark_notification_read", "run_report", "list_inbox_emails", "send_reply_email"}
+SUPPORTED_KINDS = {"get_list", "get_doc", "create_doc", "update_doc", "reply_communication", "send_communication", "mark_notification_read", "run_report", "list_inbox_emails", "send_reply_email", "aggregate"}
 
 
 def _json_safe(value):
