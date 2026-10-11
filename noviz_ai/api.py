@@ -44,8 +44,10 @@ MAX_ROUND_TRIPS = 30
 
 # Call-spec kinds this plugin runs beyond the original set, sent with each
 # new turn so the relay only uses what this version supports.
-# "aggregate": grouped figures computed by ERPNext itself (aggregate.py).
-CAPABILITIES = ["aggregate"]
+# "native_aggregate": grouped figures computed by ERPNext itself (aggregate.py,
+# call kind "aggregate"). Not "aggregate": the first release sent that name
+# while its dispatcher still rejected the call, so the relay ignores it.
+CAPABILITIES = ["native_aggregate"]
 
 def _settings():
 	# 2026-08-21: the standalone "Enabled" checkbox was removed - a real
