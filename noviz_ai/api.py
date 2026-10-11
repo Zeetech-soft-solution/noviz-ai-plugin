@@ -42,6 +42,11 @@ REQUEST_TIMEOUT_SECONDS = 150
 MAX_ROUND_TRIPS = 30
 
 
+# Call-spec kinds this plugin runs beyond the original set, sent with each
+# new turn so the relay only uses what this version supports.
+# "aggregate": grouped figures computed by ERPNext itself (aggregate.py).
+CAPABILITIES = ["aggregate"]
+
 def _settings():
 	# 2026-08-21: the standalone "Enabled" checkbox was removed - a real
 	# AI Relay Token being present IS "enabled" now, no separate manual
@@ -294,6 +299,7 @@ def send_message(prompt: str, previous_turn_id: str = None):
 				# never widens or narrows that.
 				"frappe_user": frappe.session.user,
 				"frappe_roles": frappe.get_roles(frappe.session.user),
+				"capabilities": CAPABILITIES,
 			},
 			headers,
 			session,
@@ -333,6 +339,7 @@ def next_page(tool: str, args: str):
 				"args": json.loads(args) if args else {},
 				"frappe_user": frappe.session.user,
 				"frappe_roles": frappe.get_roles(frappe.session.user),
+				"capabilities": CAPABILITIES,
 			},
 			headers,
 			session,
@@ -387,6 +394,7 @@ def scan_image(note: str = None, previous_turn_id: str = None):
 					"frappe_roles": frappe.as_json(frappe.get_roles(frappe.session.user)),
 					"previous_turn_id": previous_turn_id or "",
 					"note": note or "",
+					"capabilities": frappe.as_json(CAPABILITIES),
 					# Real, generic own-company hint the relay uses to tell
 					# "we're the recipient, not the customer/supplier" apart
 					# — see relay.routes.ts's own /scan route doc comment.

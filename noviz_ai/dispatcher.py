@@ -128,6 +128,13 @@ def execute_call_spec(spec: dict):
 	if not doctype:
 		frappe.throw("Noviz AI: the relay sent a call spec with no doctype — cannot execute it.")
 
+	if kind == "aggregate":
+		# Grouped figures computed by ERPNext itself (GROUP BY under this
+		# person's permissions); only the requested page goes back.
+		from noviz_ai.aggregate import run_aggregate
+
+		return _json_safe(run_aggregate(spec))
+
 	if kind == "get_list":
 		# Real permission check, not implied by frappe.get_list() alone —
 		# same explicit discipline as get_doc's own check below, added for
