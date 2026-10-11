@@ -95,9 +95,9 @@ def run_aggregate(spec: dict) -> dict:
 
 		if not group_by:
 			continue
-		fields = [f"{group_by} as _key", {fn: field, "as": "_v"}]
-		if index == 0:
-			fields[1:1] = [f"{c} as {_alias(c)}" for c in carry]
+		# Carried fields ride on every metric's query: a group missing from
+		# the first metric's rows still gets them from a later one.
+		fields = [f"{group_by} as _key", *[f"{c} as {_alias(c)}" for c in carry], {fn: field, "as": "_v"}]
 		rows = frappe.get_list(
 			doctype, fields=fields, filters=merged, group_by=group_by, limit_page_length=0, parent_doctype=parent_doctype
 		)
@@ -106,8 +106,8 @@ def run_aggregate(spec: dict) -> dict:
 			key = "(none)" if key in (None, "") else key
 			entry = groups.setdefault(key, {"key": key})
 			entry[name] = r.get("_v")
-			if index == 0:
-				for c in carry:
+			for c in carry:
+				if entry.get(_alias(c)) is None:
 					entry[_alias(c)] = r.get(_alias(c))
 
 	names = [m.get("name") or f'{m.get("op")}_{m.get("field") or "name"}' for m in metrics]
@@ -117,10 +117,10 @@ def run_aggregate(spec: dict) -> dict:
 			if n not in entry:
 				entry[n] = 0 if n in zero_when_missing else None
 
-	ordered = list(groups.values())
-	if spec.get("sort") == "key":
-		ordered.sort(key=lambda g: str(g["key"]))
-	else:
+	# Equal figures keep a fixed order (by key), so paging never repeats or
+	# skips a group.
+	ordered = sorted(groups.values(), key=lambda g: str(g["key"]))
+	if spec.get("sort") != "key":
 		ordered.sort(key=lambda g: _sort_value(g.get(names[0])), reverse=True)
 
 	page_count = max(1, min(int(spec.get("page_count") or MAX_PAGE), MAX_PAGE))
