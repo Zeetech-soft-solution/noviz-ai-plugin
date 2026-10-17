@@ -249,7 +249,7 @@ def _paused_turn_key(turn_id):
 	return f"noviz_ai:paused_turn:{frappe.session.user}:{turn_id}"
 
 
-def _drive_fetch_continue_loop(result, base_url, headers, session, round_trips=0):
+def _drive_fetch_continue_loop(result, base_url, headers, session, round_trips=0, can_pause=False):
 	"""Shared by send_message, next_page, scan_image and continue_turn: keep
 	executing whatever generic call the relay asks for, using this site's
 	own already-authenticated session (dispatcher.py), until it finalizes.
@@ -258,7 +258,8 @@ def _drive_fetch_continue_loop(result, base_url, headers, session, round_trips=0
 	the pending relay request is kept in the site cache and the page gets
 	{"status": "working", "turnId"} to call continue_turn with. `round_trips`
 	carries the count across those requests, so MAX_ROUND_TRIPS still bounds
-	the whole turn.
+	the whole turn. Only a chat page that sent can_continue pauses: a page
+	still cached from an earlier version gets the whole turn in one request.
 	"""
 	deadline = time.monotonic() + WORK_SECONDS_PER_REQUEST
 	fetched_here = 0
@@ -266,7 +267,7 @@ def _drive_fetch_continue_loop(result, base_url, headers, session, round_trips=0
 		if round_trips >= MAX_ROUND_TRIPS:
 			frappe.throw(f"Noviz AI: this turn needed more than {MAX_ROUND_TRIPS} data fetches — stopping rather than looping forever.")
 		# Every request runs at least one fetch, so a turn always moves on.
-		if fetched_here and time.monotonic() >= deadline:
+		if can_pause and fetched_here and time.monotonic() >= deadline:
 			frappe.cache().set_value(
 				_paused_turn_key(result["turnId"]),
 				{"result": result, "round_trips": round_trips},
@@ -301,11 +302,11 @@ def continue_turn(turn_id: str):
 	base_url = settings.relay_base_url.rstrip("/")
 	headers = _relay_headers(settings)
 	with requests.Session() as session:
-		return _drive_fetch_continue_loop(state["result"], base_url, headers, session, state["round_trips"])
+		return _drive_fetch_continue_loop(state["result"], base_url, headers, session, state["round_trips"], can_pause=True)
 
 
 @frappe.whitelist()
-def send_message(prompt: str, previous_turn_id: str = None):
+def send_message(prompt: str, previous_turn_id: str = None, can_continue=None):
 	"""The one real entry point real users hit from the chat page for a
 	typed message. See _drive_fetch_continue_loop's own doc comment for
 	what happens after the first request.
@@ -350,11 +351,11 @@ def send_message(prompt: str, previous_turn_id: str = None):
 			headers,
 			session,
 		)
-		return _drive_fetch_continue_loop(result, base_url, headers, session)
+		return _drive_fetch_continue_loop(result, base_url, headers, session, can_pause=bool(can_continue))
 
 
 @frappe.whitelist()
-def next_page(tool: str, args: str):
+def next_page(tool: str, args: str, can_continue=None):
 	"""Real, explicit product ask (2026-08-22): "u generate next page
 	urself too... now it needs to send llm, remove that" — a "Show me
 	more"/"Download complete PDF" button click already carries the EXACT
@@ -390,11 +391,11 @@ def next_page(tool: str, args: str):
 			headers,
 			session,
 		)
-		return _drive_fetch_continue_loop(result, base_url, headers, session)
+		return _drive_fetch_continue_loop(result, base_url, headers, session, can_pause=bool(can_continue))
 
 
 @frappe.whitelist()
-def scan_image(note: str = None, previous_turn_id: str = None):
+def scan_image(note: str = None, previous_turn_id: str = None, can_continue=None):
 	"""Real port of Pro's own attach/camera scan feature (Composer.tsx's
 	📎/📷 buttons -> agent.routes.ts's /scan route -> documentScanner.ts),
 	adapted for this thin-plugin architecture: the image itself travels
@@ -464,7 +465,7 @@ def scan_image(note: str = None, previous_turn_id: str = None):
 		result = response.json()
 
 		json_headers = _relay_headers(settings)
-		return _drive_fetch_continue_loop(result, base_url, json_headers, session)
+		return _drive_fetch_continue_loop(result, base_url, json_headers, session, can_pause=bool(can_continue))
 
 
 @frappe.whitelist()

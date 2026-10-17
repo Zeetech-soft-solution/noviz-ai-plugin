@@ -269,7 +269,7 @@ class NovizAIChat {
 			this.$sendBtn.prop('disabled', true);
 			const $placeholder = this.addMessage('assistant', __('Loading...'));
 			const stopThinking = this._startThinking($placeholder);
-			this._call('noviz_ai.api.next_page', { tool: payload.tool, args: JSON.stringify(payload.args || {}) })
+			this._call('noviz_ai.api.next_page', { tool: payload.tool, args: JSON.stringify(payload.args || {}), can_continue: 1 })
 				.then((message) => this._untilFinal(message))
 				.then(
 					(message) => { stopThinking(); this._renderTurnResult($placeholder, message); },
@@ -517,7 +517,7 @@ class NovizAIChat {
 		const $thinking = this.addMessage('assistant', __('Thinking...'));
 		const stopThinking = this._startThinking($thinking);
 
-		this._call('noviz_ai.api.send_message', { prompt: prompt, previous_turn_id: this.lastTurnId })
+		this._call('noviz_ai.api.send_message', { prompt: prompt, previous_turn_id: this.lastTurnId, can_continue: 1 })
 			.then((message) => this._untilFinal(message))
 			.then(
 				(message) => { stopThinking(); this._renderTurnResult($thinking, message); },
@@ -680,6 +680,7 @@ class NovizAIChat {
 		formData.append('image', file);
 		if (note) formData.append('note', note);
 		if (this.lastTurnId) formData.append('previous_turn_id', this.lastTurnId);
+		formData.append('can_continue', '1');
 
 		fetch('/api/method/noviz_ai.api.scan_image', {
 			method: 'POST',

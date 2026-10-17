@@ -66,7 +66,7 @@ class TestTurnLoop(unittest.TestCase):
 		replies = iter([_fetch(2), _fetch(3), _fetch(4), {"status": "final", "reply": "done", "turnId": "t1"}])
 		with mock.patch.object(api, "_post", side_effect=lambda *a, **k: next(replies)), \
 			mock.patch.object(api.frappe, "session", mock.Mock(user="a@b.c")):
-			first = api._drive_fetch_continue_loop(_fetch(1), "https://relay", {}, None)
+			first = api._drive_fetch_continue_loop(_fetch(1), "https://relay", {}, None, can_pause=True)
 			# 3 fetches x 15s passes the 40s budget: paused before fetch 4.
 			self.assertEqual(first, {"status": "working", "turnId": "t1"})
 			self.assertEqual(self.executed, [1, 2, 3])
@@ -92,10 +92,19 @@ class TestTurnLoop(unittest.TestCase):
 		self.clock[0] = 0
 		replies = iter([_fetch(2), {"status": "final", "reply": "done", "turnId": "t1"}])
 		with mock.patch.object(api, "_post", side_effect=lambda *a, **k: next(replies)), 			mock.patch.object(api, "WORK_SECONDS_PER_REQUEST", 0), 			mock.patch.object(api.frappe, "session", mock.Mock(user="a@b.c")):
-			first = api._drive_fetch_continue_loop(_fetch(1), "https://relay", {}, None)
+			first = api._drive_fetch_continue_loop(_fetch(1), "https://relay", {}, None, can_pause=True)
 			self.assertEqual(first["status"], "working")
 			self.assertEqual(self.executed, [1])
 			with mock.patch.object(api, "_settings", return_value=mock.Mock(relay_base_url="https://relay")), 				mock.patch.object(api, "_relay_headers", return_value={}):
 				final = api.continue_turn("t1")
 		self.assertEqual(final["status"], "final")
 		self.assertEqual(self.executed, [1, 2])
+
+	def test_page_without_can_continue_gets_the_whole_turn(self):
+		# A chat page cached from before continue_turn existed never sees "working".
+		replies = iter([_fetch(2), _fetch(3), _fetch(4), {"status": "final", "reply": "done", "turnId": "t1"}])
+		with mock.patch.object(api, "_post", side_effect=lambda *a, **k: next(replies)):
+			result = api._drive_fetch_continue_loop(_fetch(1), "https://relay", {}, None)
+		self.assertEqual(result["status"], "final")
+		self.assertEqual(self.executed, [1, 2, 3, 4])
+		self.assertEqual(self.cache.store, {})
