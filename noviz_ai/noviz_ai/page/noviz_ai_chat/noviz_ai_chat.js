@@ -269,17 +269,17 @@ class NovizAIChat {
 			this.$sendBtn.prop('disabled', true);
 			const $placeholder = this.addMessage('assistant', __('Loading...'));
 			const stopThinking = this._startThinking($placeholder);
-			frappe.call({
-				method: 'noviz_ai.api.next_page',
-				args: { tool: payload.tool, args: JSON.stringify(payload.args || {}) },
-				callback: (r) => { stopThinking(); this._renderTurnResult($placeholder, r.message); },
-				error: () => { stopThinking(); $placeholder.remove(); },
-				always: () => {
+			this._call('noviz_ai.api.next_page', { tool: payload.tool, args: JSON.stringify(payload.args || {}) })
+				.then((message) => this._untilFinal(message))
+				.then(
+					(message) => { stopThinking(); this._renderTurnResult($placeholder, message); },
+					() => { stopThinking(); $placeholder.remove(); }
+				)
+				.finally(() => {
 					stopThinking();
 					this.sending = false;
 					this.$sendBtn.prop('disabled', false);
-				},
-			});
+				});
 		});
 		// A row's own id, or a next_steps action button, inside the
 		// injected HTML is a real clickable prompt-sender — same
@@ -517,23 +517,41 @@ class NovizAIChat {
 		const $thinking = this.addMessage('assistant', __('Thinking...'));
 		const stopThinking = this._startThinking($thinking);
 
-		frappe.call({
-			method: 'noviz_ai.api.send_message',
-			args: { prompt: prompt, previous_turn_id: this.lastTurnId },
-			callback: (r) => { stopThinking(); this._renderTurnResult($thinking, r.message); },
-			error: () => {
-				// frappe.call already shows the real server error to the
-				// user via its own dialog — just clear the placeholder
-				// rather than showing a second, redundant message.
-				stopThinking();
-				$thinking.remove();
-			},
-			always: () => {
+		this._call('noviz_ai.api.send_message', { prompt: prompt, previous_turn_id: this.lastTurnId })
+			.then((message) => this._untilFinal(message))
+			.then(
+				(message) => { stopThinking(); this._renderTurnResult($thinking, message); },
+				() => {
+					// frappe.call already shows the real server error to the
+					// user via its own dialog — just clear the placeholder
+					// rather than showing a second, redundant message.
+					stopThinking();
+					$thinking.remove();
+				}
+			)
+			.finally(() => {
 				stopThinking();
 				this.sending = false;
 				this.$sendBtn.prop('disabled', false);
-			},
+			});
+	}
+
+	/** frappe.call as a promise: resolves with the method's message, rejects
+	 *  on a server error (which frappe.call has already shown in its dialog). */
+	_call(method, args) {
+		return new Promise((resolve, reject) => {
+			frappe.call({ method, args, callback: (r) => resolve(r.message), error: reject });
 		});
+	}
+
+	/** A long turn runs in several short requests (api.py's
+	 *  WORK_SECONDS_PER_REQUEST): while the server answers "working", ask it
+	 *  to continue the same turn until the final answer arrives. */
+	_untilFinal(message) {
+		if (message && message.status === 'working' && message.turnId) {
+			return this._call('noviz_ai.api.continue_turn', { turn_id: message.turnId }).then((next) => this._untilFinal(next));
+		}
+		return Promise.resolve(message);
 	}
 
 	/** A short optional note travels alongside the image (e.g. "this is
@@ -675,10 +693,11 @@ class NovizAIChat {
 				}
 				return res.json();
 			})
-			.then((data) => { stopThinking(); this._renderTurnResult($thinking, data.message); })
+			.then((data) => this._untilFinal(data.message))
+			.then((message) => { stopThinking(); this._renderTurnResult($thinking, message); })
 			.catch((err) => {
 				stopThinking();
-				$thinking.html(frappe.markdown(err.message || __('Scan failed.')));
+				$thinking.html(frappe.markdown((err && err.message) || __('Scan failed.')));
 			})
 			.finally(() => {
 				stopThinking();

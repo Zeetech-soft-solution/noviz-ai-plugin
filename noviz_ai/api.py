@@ -7,6 +7,8 @@
 # stays on the central server (see erp-agent-platform, private) and is
 # never shipped here. See README.md for the full architecture and why
 # this repo is open source while the central brain is not.
+import time
+
 import frappe
 import requests
 
@@ -40,6 +42,15 @@ REQUEST_TIMEOUT_SECONDS = 150
 # workaround for that bug. Still bounded, not infinite; REQUEST_TIMEOUT_SECONDS
 # above is the other real backstop if round trips are individually slow.
 MAX_ROUND_TRIPS = 30
+# Work one web request does before handing back to the chat page. The host
+# cuts a request off at its own limit (120s on a standard Frappe site), so a
+# long turn runs in several short requests: after this many seconds the loop
+# saves its place and returns {"status": "working"}; the page then calls
+# continue_turn for the next stretch. A short turn finishes in one request
+# exactly as before.
+WORK_SECONDS_PER_REQUEST = 40
+# How long a paused turn waits for the page to continue it.
+PAUSED_TURN_TTL_SECONDS = 600
 
 
 # Call-spec kinds this plugin runs beyond the original set, sent with each
@@ -233,20 +244,34 @@ def _execute_call_spec_safely(call_spec):
 		return {"error": f"Something unexpected went wrong on the ERPNext side ({type(e).__name__}) — this has been logged for the administrator."}
 
 
-def _drive_fetch_continue_loop(result, base_url, headers, session):
-	"""Shared by send_message and scan_image — both start a turn one
-	different way (a typed prompt vs a scanned image), but from here on
-	it's the exact same real fetch/continue machine: keep executing
-	whatever generic call the relay asks for, using this site's own
-	already-authenticated session (dispatcher.py), until it finalizes.
-	The browser only ever sees the final {"status": "final", ...} once
-	this returns, never the intermediate relay round trips.
+def _paused_turn_key(turn_id):
+	# Per user: a turn paused for one person can only be continued by them.
+	return f"noviz_ai:paused_turn:{frappe.session.user}:{turn_id}"
+
+
+def _drive_fetch_continue_loop(result, base_url, headers, session, round_trips=0):
+	"""Shared by send_message, next_page, scan_image and continue_turn: keep
+	executing whatever generic call the relay asks for, using this site's
+	own already-authenticated session (dispatcher.py), until it finalizes.
+
+	At most WORK_SECONDS_PER_REQUEST of fetching per web request: past that
+	the pending relay request is kept in the site cache and the page gets
+	{"status": "working", "turnId"} to call continue_turn with. `round_trips`
+	carries the count across those requests, so MAX_ROUND_TRIPS still bounds
+	the whole turn.
 	"""
-	round_trips = 0
+	deadline = time.monotonic() + WORK_SECONDS_PER_REQUEST
 	while result.get("status") == "fetch":
-		round_trips += 1
-		if round_trips > MAX_ROUND_TRIPS:
+		if round_trips >= MAX_ROUND_TRIPS:
 			frappe.throw(f"Noviz AI: this turn needed more than {MAX_ROUND_TRIPS} data fetches — stopping rather than looping forever.")
+		if time.monotonic() >= deadline:
+			frappe.cache().set_value(
+				_paused_turn_key(result["turnId"]),
+				{"result": result, "round_trips": round_trips},
+				expires_in_sec=PAUSED_TURN_TTL_SECONDS,
+			)
+			return {"status": "working", "turnId": result["turnId"]}
+		round_trips += 1
 
 		call_spec = result["request"]
 		# The ONLY place this app ever touches real ERPNext data — see
@@ -258,6 +283,22 @@ def _drive_fetch_continue_loop(result, base_url, headers, session):
 		result = _post(f"{base_url}/v1/agent/turn/continue", {"turnId": result["turnId"], "result": data}, headers, session)
 
 	return result
+
+
+@frappe.whitelist()
+def continue_turn(turn_id: str):
+	"""The next stretch of a turn that returned {"status": "working"}."""
+	key = _paused_turn_key(turn_id)
+	state = frappe.cache().get_value(key)
+	if not state:
+		frappe.throw("This answer took too long to continue. Please ask again.")
+	frappe.cache().delete_value(key)
+
+	settings = _settings()
+	base_url = settings.relay_base_url.rstrip("/")
+	headers = _relay_headers(settings)
+	with requests.Session() as session:
+		return _drive_fetch_continue_loop(state["result"], base_url, headers, session, state["round_trips"])
 
 
 @frappe.whitelist()
