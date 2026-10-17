@@ -86,3 +86,16 @@ class TestTurnLoop(unittest.TestCase):
 			with self.assertRaises(RuntimeError):
 				api._drive_fetch_continue_loop(_fetch(1), "https://relay", {}, None, api.MAX_ROUND_TRIPS)
 		self.assertEqual(self.executed, [])
+
+	def test_every_request_makes_progress(self):
+		# Even when one step alone outlasts the budget, each request runs a fetch.
+		self.clock[0] = 0
+		replies = iter([_fetch(2), {"status": "final", "reply": "done", "turnId": "t1"}])
+		with mock.patch.object(api, "_post", side_effect=lambda *a, **k: next(replies)), 			mock.patch.object(api, "WORK_SECONDS_PER_REQUEST", 0), 			mock.patch.object(api.frappe, "session", mock.Mock(user="a@b.c")):
+			first = api._drive_fetch_continue_loop(_fetch(1), "https://relay", {}, None)
+			self.assertEqual(first["status"], "working")
+			self.assertEqual(self.executed, [1])
+			with mock.patch.object(api, "_settings", return_value=mock.Mock(relay_base_url="https://relay")), 				mock.patch.object(api, "_relay_headers", return_value={}):
+				final = api.continue_turn("t1")
+		self.assertEqual(final["status"], "final")
+		self.assertEqual(self.executed, [1, 2])

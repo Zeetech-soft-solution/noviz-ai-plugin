@@ -261,10 +261,12 @@ def _drive_fetch_continue_loop(result, base_url, headers, session, round_trips=0
 	the whole turn.
 	"""
 	deadline = time.monotonic() + WORK_SECONDS_PER_REQUEST
+	fetched_here = 0
 	while result.get("status") == "fetch":
 		if round_trips >= MAX_ROUND_TRIPS:
 			frappe.throw(f"Noviz AI: this turn needed more than {MAX_ROUND_TRIPS} data fetches — stopping rather than looping forever.")
-		if time.monotonic() >= deadline:
+		# Every request runs at least one fetch, so a turn always moves on.
+		if fetched_here and time.monotonic() >= deadline:
 			frappe.cache().set_value(
 				_paused_turn_key(result["turnId"]),
 				{"result": result, "round_trips": round_trips},
@@ -272,6 +274,7 @@ def _drive_fetch_continue_loop(result, base_url, headers, session, round_trips=0
 			)
 			return {"status": "working", "turnId": result["turnId"]}
 		round_trips += 1
+		fetched_here += 1
 
 		call_spec = result["request"]
 		# The ONLY place this app ever touches real ERPNext data — see
