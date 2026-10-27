@@ -10,7 +10,7 @@ import json
 
 import frappe
 
-SUPPORTED_KINDS = {"get_list", "get_doc", "create_doc", "update_doc", "reply_communication", "send_communication", "mark_notification_read", "run_report", "list_inbox_emails", "send_reply_email", "aggregate"}
+SUPPORTED_KINDS = {"get_list", "get_doc", "create_doc", "update_doc", "reply_communication", "send_communication", "mark_notification_read", "run_report", "list_inbox_emails", "send_reply_email", "aggregate", "get_actions", "run_action"}
 
 
 def _json_safe(value):
@@ -58,6 +58,12 @@ def execute_call_spec(spec: dict):
 	kind = spec.get("kind")
 	if kind not in SUPPORTED_KINDS:
 		frappe.throw(f'Noviz AI: this plugin does not know how to execute call kind "{kind}" (only {sorted(SUPPORTED_KINDS)} are supported).')
+
+	if kind in ("get_actions", "run_action"):
+		from noviz_ai import document_actions
+
+		result = document_actions.get_actions(spec) if kind == "get_actions" else document_actions.run_action(spec)
+		return _json_safe(result)
 
 	if kind == "run_report":
 		# A real ERPNext named report (General Ledger, Profit and Loss,

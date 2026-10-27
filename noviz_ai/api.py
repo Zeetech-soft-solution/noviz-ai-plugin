@@ -58,7 +58,9 @@ PAUSED_TURN_TTL_SECONDS = 600
 # "native_aggregate": grouped figures computed by ERPNext itself (aggregate.py,
 # call kind "aggregate"). Not "aggregate": the first release sent that name
 # while its dispatcher still rejected the call, so the relay ignores it.
-CAPABILITIES = ["native_aggregate"]
+# "document_actions": what can happen next to a document and running it
+# (document_actions.py, call kinds "get_actions" and "run_action").
+CAPABILITIES = ["native_aggregate", "document_actions"]
 
 def _settings():
 	# 2026-08-21: the standalone "Enabled" checkbox was removed - a real
