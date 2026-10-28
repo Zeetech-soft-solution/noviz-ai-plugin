@@ -132,18 +132,45 @@ if (!document.getElementById('noviz-ai-chat-style')) {
 		}
 
 
-		.noviz-ai-chat-input-row { display: flex; gap: 8px; padding-top: 12px; border-top: 1px solid var(--border-color, #d1d8dd); }
-		.noviz-ai-chat-input { flex: 1; }
-			/* Attach/camera — real port of Pro's own Composer.tsx icon pair,
-			same two icons, same position (left of the text input), same
-			behavior (both call the same send-an-image path with an
-			optional note). */
-			.noviz-ai-chat-icon-btn {
-				background: none; border: 1px solid var(--border-color, #d1d8dd); border-radius: 6px;
-				width: 36px; height: 36px; font-size: 16px; cursor: pointer; flex-shrink: 0;
-				display: flex; align-items: center; justify-content: center;
-			}
-			.noviz-ai-chat-icon-btn:hover { background: var(--control-bg, #f4f5f6); }
+		/* Composer: one rounded bar, + menu, round send (ChatGPT style, the same
+		   design as the other Noviz AI apps' shared noviz-chat.css). */
+		.noviz-ai-chat-input-row {
+			position: relative; display: flex; align-items: flex-end; gap: 6px; margin-top: 12px;
+			padding: 6px 6px 6px 8px; border: 1px solid var(--border-color, #d1d8dd); border-radius: 24px;
+			background: var(--card-bg, #fff); transition: border-color 0.15s ease, box-shadow 0.15s ease;
+		}
+		.noviz-ai-chat-input-row:focus-within { border-color: #1e7a5c; box-shadow: 0 0 0 3px rgba(30, 122, 92, 0.12); }
+		.noviz-ai-chat-input {
+			flex: 1; min-width: 0; resize: none; min-height: 36px; max-height: 160px; border: none; background: transparent;
+			padding: 8px 4px; font: inherit; line-height: 1.4; color: var(--text-color, #1f272e);
+		}
+		.noviz-ai-chat-input:focus { outline: none; box-shadow: none; }
+		.noviz-ai-plus, .noviz-ai-chat-send {
+			flex-shrink: 0; width: 36px; height: 36px; border: none; border-radius: 50%; padding: 0;
+			display: inline-flex; align-items: center; justify-content: center; cursor: pointer; font: inherit;
+		}
+		.noviz-ai-plus { background: transparent; color: var(--text-color, #1f272e); font-size: 24px; line-height: 1; }
+		.noviz-ai-plus:hover, .noviz-ai-plus[aria-expanded="true"] { background: #e8f4ef; }
+		.noviz-ai-chat-send { background: #1e7a5c; color: #fff; font-size: 18px; font-weight: 700; }
+		.noviz-ai-chat-send:hover { background: #17644b; }
+		.noviz-ai-plus:disabled, .noviz-ai-chat-send:disabled { opacity: 0.5; cursor: default; }
+		.noviz-ai-menu {
+			position: absolute; bottom: calc(100% + 8px); left: 0; z-index: 20; min-width: 220px; padding: 6px;
+			background: var(--card-bg, #fff); border: 1px solid var(--border-color, #d1d8dd); border-radius: 14px;
+			box-shadow: 0 8px 24px rgba(16, 24, 40, 0.12);
+		}
+		.noviz-ai-menu[hidden] { display: none; }
+		.noviz-ai-menu-item {
+			display: flex; align-items: center; gap: 10px; width: 100%; min-height: 44px; padding: 0 12px;
+			border: none; border-radius: 10px; background: none; font: inherit; color: var(--text-color, #1f272e);
+			text-align: left; cursor: pointer;
+		}
+		.noviz-ai-menu-item:hover, .noviz-ai-menu-item:focus-visible { background: #e8f4ef; outline: none; }
+		.noviz-ai-menu-icon { width: 22px; text-align: center; }
+		@media (max-width: 640px) {
+			.noviz-ai-plus, .noviz-ai-chat-send { width: 44px; height: 44px; }
+			.noviz-ai-menu { right: 0; min-width: 0; }
+		}
 			.noviz-ai-camera-overlay {
 				position: fixed; inset: 0; background: rgba(0,0,0,0.85); z-index: 2000;
 				display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px;
@@ -193,12 +220,15 @@ class NovizAIChat {
 				</div>
 				<div class="noviz-ai-chat-log"></div>
 				<div class="noviz-ai-chat-input-row">
-					<button type="button" class="noviz-ai-chat-icon-btn noviz-ai-attach-btn" title="${__('Attach an image or PDF')}">📎</button>
-					<button type="button" class="noviz-ai-chat-icon-btn noviz-ai-camera-btn" title="${__('Scan with camera')}">📷</button>
+					<div class="noviz-ai-menu" role="menu" hidden>
+						<button type="button" class="noviz-ai-menu-item noviz-ai-attach-btn" role="menuitem"><span class="noviz-ai-menu-icon">📎</span><span>${__('Attach a document')}</span></button>
+						<button type="button" class="noviz-ai-menu-item noviz-ai-camera-btn" role="menuitem"><span class="noviz-ai-menu-icon">📷</span><span>${__('Scan with camera')}</span></button>
+					</div>
+					<button type="button" class="noviz-ai-plus" title="${__('More')}" aria-label="${__('More')}" aria-haspopup="menu" aria-expanded="false">+</button>
 					<input type="file" class="noviz-ai-file-input" accept="image/jpeg,image/png,image/webp,application/pdf" style="display:none" />
-					<input type="text" class="form-control noviz-ai-chat-input"
-						placeholder="${__('Ask about your ERPNext data...')}" />
-					<button class="btn btn-primary btn-sm noviz-ai-chat-send">${__('Send')}</button>
+					<textarea rows="1" class="noviz-ai-chat-input"
+						placeholder="${__('Ask about your ERPNext data...')}"></textarea>
+					<button type="button" class="noviz-ai-chat-send" title="${__('Send')}" aria-label="${__('Send')}">↑</button>
 				</div>
 			</div>
 		`).appendTo(this.page.body);
@@ -235,8 +265,52 @@ class NovizAIChat {
 			if (!this.sending) this.openCamera();
 		});
 		this.$input.on('keydown', (e) => {
-			if (e.key === 'Enter' && !this.sending) this.send();
+			if (e.key === 'Enter' && !e.shiftKey) {
+				e.preventDefault();
+				if (!this.sending) this.send();
+			}
 		});
+		// One line to start; grows with the text up to the CSS max-height.
+		this.$input.on('input', () => this._fitInput());
+
+		// The + menu (ChatGPT style): Attach and Scan, then the items the relay
+		// says this site's ERP supports; an item it cannot answer shows its
+		// empty answer ("No emails.") without a request.
+		this.$menu = this.$container.find('.noviz-ai-menu');
+		this.$plus = this.$container.find('.noviz-ai-plus');
+		const closeMenu = () => {
+			this.$menu.prop('hidden', true);
+			this.$plus.attr('aria-expanded', 'false');
+		};
+		this.$plus.on('click', () => {
+			if (this.$menu.prop('hidden')) {
+				if (this.sending) return;
+				this.$menu.prop('hidden', false);
+				this.$plus.attr('aria-expanded', 'true');
+			} else {
+				closeMenu();
+			}
+		});
+		this.$menu.on('click', '.noviz-ai-menu-item', closeMenu);
+		$(document).on('click.noviz-ai-menu', (e) => {
+			if (!this.$menu.prop('hidden') && !$(e.target).closest('.noviz-ai-chat-input-row').length) closeMenu();
+		});
+		$(document).on('keydown.noviz-ai-menu', (e) => { if (e.key === 'Escape') closeMenu(); });
+		const MENU_ICONS = { approvals: '⏳', mail: '✉️', notifications: '🔔' };
+		frappe.call({ method: 'noviz_ai.api.chat_menu', callback: (r) => {
+			(r.message || []).forEach((item) => {
+				const $item = $('<button type="button" class="noviz-ai-menu-item" role="menuitem"></button>')
+					.append($('<span class="noviz-ai-menu-icon"></span>').text(MENU_ICONS[item.id] || '•'))
+					.append($('<span></span>').text(item.label));
+				$item.on('click', () => {
+					if (this.sending) return;
+					if (item.prompt) return this.send(item.prompt);
+					this.addMessage('user', item.label);
+					this.addMessage('assistant', item.empty || '');
+				});
+				this.$menu.append($item);
+			});
+		} });
 
 		// Real, explicit product ask (2026-08-22): "u generate next page
 		// urself too... now it needs to send llm, remove that" — a
@@ -506,13 +580,24 @@ class NovizAIChat {
 	 *  see the click handler above) skips adding that literal instruction
 	 *  as a visible user chat bubble; the real request and "Thinking..."
 	 *  placeholder still happen exactly the same either way. */
+	/** The text box's height follows its text (one line to start). */
+	_fitInput() {
+		const el = this.$input[0];
+		if (!el) return;
+		el.style.height = 'auto';
+		el.style.height = `${el.scrollHeight}px`;
+	}
+
 	send(promptOverride, hidden) {
 		const prompt = (promptOverride || this.$input.val()).trim();
 		if (!prompt || this.sending) return;
 
 		this.sending = true;
 		this.$sendBtn.prop('disabled', true);
-		if (!promptOverride) this.$input.val('');
+		if (!promptOverride) {
+			this.$input.val('');
+			this._fitInput();
+		}
 		if (!hidden) this.addMessage('user', prompt);
 		const $thinking = this.addMessage('assistant', __('Thinking...'));
 		const stopThinking = this._startThinking($thinking);

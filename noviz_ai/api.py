@@ -308,6 +308,24 @@ def continue_turn(turn_id: str):
 
 
 @frappe.whitelist()
+def chat_menu():
+	"""The chat's + menu items beyond Attach and Scan (Approvals, Mail, ...),
+	from the relay: each with its prompt where this site's ERP answers it, else
+	its empty answer ("No emails."). Empty when the relay cannot say."""
+	try:
+		settings = _settings()
+		response = requests.get(
+			settings.relay_base_url.rstrip("/") + "/chat-menu", headers=_relay_headers(settings), timeout=15
+		)
+		if response.ok:
+			items = response.json().get("items")
+			return items if isinstance(items, list) else []
+	except Exception:
+		pass
+	return []
+
+
+@frappe.whitelist()
 def send_message(prompt: str, previous_turn_id: str = None, can_continue=None):
 	"""The one real entry point real users hit from the chat page for a
 	typed message. See _drive_fetch_continue_loop's own doc comment for
