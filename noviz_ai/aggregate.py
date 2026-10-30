@@ -17,7 +17,7 @@ grouped query, and the relay expresses a month as a date-range filter.
 import frappe
 
 from noviz_ai.pdf_report import _AGGREGATE_SQL
-from noviz_ai.utils import aggregate_field, child_parent_doctype
+from noviz_ai.utils import child_parent_doctype
 
 # Bounds what one request can ask ERPNext to run.
 MAX_METRICS = 24
@@ -89,7 +89,7 @@ def run_aggregate(spec: dict) -> dict:
 
 		# The figure over everything (correct for avg / min / max too).
 		total_rows = frappe.get_list(
-			doctype, fields=[aggregate_field(fn, field, "_v")], filters=merged, limit_page_length=0, parent_doctype=parent_doctype
+			doctype, fields=[{fn: field, "as": "_v"}], filters=merged, limit_page_length=0, parent_doctype=parent_doctype
 		)
 		overall[name] = total_rows[0].get("_v") if total_rows else None
 
@@ -97,11 +97,9 @@ def run_aggregate(spec: dict) -> dict:
 			continue
 		# Carried fields ride on every metric's query: a group missing from
 		# the first metric's rows still gets them from a later one.
-		fields = [f"{group_by} as _key", *[f"{c} as {_alias(c)}" for c in carry], aggregate_field(fn, field, "_v")]
+		fields = [f"{group_by} as _key", *[f"{c} as {_alias(c)}" for c in carry], {fn: field, "as": "_v"}]
 		rows = frappe.get_list(
-			# Grouped by the alias: v15 cannot GROUP BY a linked field written
-			# "customer.customer_group"; v15 and v16 both group by its alias.
-			doctype, fields=fields, filters=merged, group_by="_key", limit_page_length=0, parent_doctype=parent_doctype
+			doctype, fields=fields, filters=merged, group_by=group_by, limit_page_length=0, parent_doctype=parent_doctype
 		)
 		for r in rows:
 			key = r.get("_key")

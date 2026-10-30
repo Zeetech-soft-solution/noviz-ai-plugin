@@ -36,7 +36,7 @@
 # keep the plain original render.
 import frappe
 
-from noviz_ai.utils import aggregate_field, child_parent_doctype
+from noviz_ai.utils import child_parent_doctype
 
 
 def _escape(value) -> str:
@@ -360,7 +360,7 @@ def run_aggregate_query(doctype: str, group_by_field: str, metrics: list, filter
 			frappe.throw(f'Unsupported aggregate op "{op}".')
 		alias = f"{op}_{m['field']}"
 		metric_aliases.append(alias)
-		select_fields.append(aggregate_field(sql_fn, m["field"], alias))
+		select_fields.append({sql_fn: m["field"], "as": alias})
 
 	rows = frappe.get_list(
 		doctype,
@@ -411,7 +411,7 @@ def run_joined_aggregate(base_doctype: str, link_fields: list, group_by_field: s
 			frappe.throw(f'Unsupported aggregate op "{m["op"]}".')
 		alias = f"{m['op']}_{m['field']}"
 		metric_aliases.append(alias)
-		select_fields.append(aggregate_field(fn, m["field"], alias))
+		select_fields.append({fn: m["field"], "as": alias})
 
 	rows = frappe.get_list(
 		base_doctype,
@@ -446,7 +446,7 @@ def run_aggregate_page(base_doctype: str, link_fields: list, group_by_field: str
 			frappe.throw(f'Unsupported aggregate op "{m["op"]}".')
 		alias = f"{m['op']}_{m['field']}"
 		metric_aliases.append(alias)
-		select_fields.append(aggregate_field(fn, m["field"], alias))
+		select_fields.append({fn: m["field"], "as": alias})
 
 	size = max(1, int(page_count or 20))
 	start = max(0, (max(1, int(page_index or 1)) - 1) * size)
