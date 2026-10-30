@@ -5,6 +5,17 @@
 # readable and doesn't pull in requests/dispatcher imports it never uses.
 import frappe
 
+_FRAPPE_MAJOR = int(str(frappe.__version__).split(".")[0])
+
+
+def aggregate_field(fn: str, field: str, alias: str):
+	"""A SUM/COUNT/AVG/MIN/MAX column in the form this Frappe accepts in
+	get_list: v16 takes {"SUM": field, "as": alias} and refuses SQL text;
+	v15 takes only "sum(field) as alias" and fails on the dict."""
+	if _FRAPPE_MAJOR >= 16:
+		return {fn: field, "as": alias}
+	return f"{fn.lower()}({field}) as {alias}"
+
 
 def check_app_permission():
 	"""The "Noviz AI" tile on the /apps launcher (hooks.py's
