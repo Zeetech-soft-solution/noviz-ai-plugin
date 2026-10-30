@@ -9,15 +9,18 @@ under the logged-in person's own permissions, and only the requested page
 of grouped rows goes back to the relay.
 
 One frappe.get_list call per metric — each with its own filters — merged
-by group key here. Frappe 16 does not allow SQL functions as strings or
-conditional aggregates in get_list, so a per-metric filter is its own
-grouped query, and the relay expresses a month as a date-range filter.
+by group key here. A per-metric filter is its own grouped query, and the
+relay expresses a month as a date-range filter.
+
+This is the Frappe 15 branch: figure columns are written "sum(field) as
+alias", the group is the alias, and a filter on a linked record's field
+becomes the matching records' names (utils.frappe15_filters).
 """
 
 import frappe
 
 from noviz_ai.pdf_report import _AGGREGATE_SQL
-from noviz_ai.utils import child_parent_doctype
+from noviz_ai.utils import child_parent_doctype, figure_column, frappe15_filters
 
 # Bounds what one request can ask ERPNext to run.
 MAX_METRICS = 24
@@ -85,21 +88,24 @@ def run_aggregate(spec: dict) -> dict:
 			frappe.throw(f'Noviz AI: unsupported aggregate op "{m.get("op")}".')
 		name = m.get("name") or f'{m.get("op")}_{m.get("field") or "name"}'
 		field = m.get("field") or "name"
-		merged = _merge_filters(filters, m.get("filters"))
+		merged = frappe15_filters(doctype, _merge_filters(filters, m.get("filters")))
 
 		# The figure over everything (correct for avg / min / max too).
 		total_rows = frappe.get_list(
-			doctype, fields=[{fn: field, "as": "_v"}], filters=merged, limit_page_length=0, parent_doctype=parent_doctype
+			doctype, fields=[figure_column(fn, doctype, field, "_v")], filters=merged, limit_page_length=0, parent_doctype=parent_doctype
 		)
 		overall[name] = total_rows[0].get("_v") if total_rows else None
 
 		if not group_by:
 			continue
 		# Carried fields ride on every metric's query: a group missing from
-		# the first metric's rows still gets them from a later one.
-		fields = [f"{group_by} as _key", *[f"{c} as {_alias(c)}" for c in carry], {fn: field, "as": "_v"}]
+		# the first metric's rows still gets them from a later one. Frappe 15
+		# cannot read MIN/MAX next to a linked record's field, so those
+		# queries leave linked carried fields to the other metrics.
+		carried = [c for c in carry if fn not in ("MIN", "MAX") or "." not in c]
+		fields = [f"{group_by} as _key", *[f"{c} as {_alias(c)}" for c in carried], figure_column(fn, doctype, field, "_v")]
 		rows = frappe.get_list(
-			doctype, fields=fields, filters=merged, group_by=group_by, limit_page_length=0, parent_doctype=parent_doctype
+			doctype, fields=fields, filters=merged, group_by="_key", limit_page_length=0, parent_doctype=parent_doctype
 		)
 		for r in rows:
 			key = r.get("_key")

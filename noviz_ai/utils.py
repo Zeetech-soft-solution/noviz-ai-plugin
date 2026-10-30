@@ -6,6 +6,44 @@
 import frappe
 
 
+def figure_column(fn: str, doctype: str, field: str, alias: str) -> str:
+	"""A SUM/COUNT/AVG/MIN/MAX column for get_list, as Frappe 15 reads it.
+	SUM/COUNT/AVG name the field with its table: when the query also reads a
+	linked record's field, Frappe joins that table and a bare "name" is
+	ambiguous. Frappe 15 reads MIN/MAX only with a bare field (and not at all
+	next to a linked record's field)."""
+	qualify = fn.upper() in ("SUM", "COUNT", "AVG") and "." not in field
+	column = f"`tab{doctype}`.`{field}`" if qualify else field
+	return f"{fn.lower()}({column}) as {alias}"
+
+
+def frappe15_filters(doctype: str, filters):
+	"""Filters in the form Frappe 15 reads:
+	- a linked record's field ("customer.customer_group") cannot be filtered
+	  on, so it becomes the names of the matching linked records, read with
+	  get_list under the same user's permissions;
+	- the date word "today" is not read, so it becomes today's date."""
+	if not filters:
+		return filters
+	triples = (
+		[[k, *v] if isinstance(v, (list, tuple)) else [k, "=", v] for k, v in filters.items()]
+		if isinstance(filters, dict)
+		else [list(f) for f in filters]
+	)
+	out = []
+	for field, op, value in triples:
+		if value == "today":
+			value = frappe.utils.today()
+		if "." not in field:
+			out.append([field, op, value])
+			continue
+		link, linked_field = field.split(".", 1)
+		target = frappe.get_meta(doctype).get_field(link).options
+		names = frappe.get_list(target, filters=[[linked_field, op, value]], pluck="name", limit_page_length=0)
+		out.append([link, "in", names or [""]])
+	return out
+
+
 def check_app_permission():
 	"""The "Noviz AI" tile on the /apps launcher (hooks.py's
 	add_to_apps_screen). Shown to every desk user so the app is

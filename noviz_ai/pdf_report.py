@@ -36,7 +36,7 @@
 # keep the plain original render.
 import frappe
 
-from noviz_ai.utils import child_parent_doctype
+from noviz_ai.utils import child_parent_doctype, figure_column, frappe15_filters
 
 
 def _escape(value) -> str:
@@ -360,11 +360,11 @@ def run_aggregate_query(doctype: str, group_by_field: str, metrics: list, filter
 			frappe.throw(f'Unsupported aggregate op "{op}".')
 		alias = f"{op}_{m['field']}"
 		metric_aliases.append(alias)
-		select_fields.append({sql_fn: m["field"], "as": alias})
+		select_fields.append(figure_column(sql_fn, doctype, m["field"], alias))
 
 	rows = frappe.get_list(
 		doctype,
-		filters=filters,
+		filters=frappe15_filters(doctype, filters),
 		fields=select_fields,
 		group_by=group_by_field,
 		# Real gap found live: a BACKTICK-quoted alias here is parsed as
@@ -411,11 +411,11 @@ def run_joined_aggregate(base_doctype: str, link_fields: list, group_by_field: s
 			frappe.throw(f'Unsupported aggregate op "{m["op"]}".')
 		alias = f"{m['op']}_{m['field']}"
 		metric_aliases.append(alias)
-		select_fields.append({fn: m["field"], "as": alias})
+		select_fields.append(figure_column(fn, base_doctype, m["field"], alias))
 
 	rows = frappe.get_list(
 		base_doctype,
-		filters=filters,
+		filters=frappe15_filters(base_doctype, filters),
 		fields=select_fields,
 		group_by=group_by_field,
 		order_by=f"{metric_aliases[0]} desc" if metric_aliases else None,
@@ -446,13 +446,13 @@ def run_aggregate_page(base_doctype: str, link_fields: list, group_by_field: str
 			frappe.throw(f'Unsupported aggregate op "{m["op"]}".')
 		alias = f"{m['op']}_{m['field']}"
 		metric_aliases.append(alias)
-		select_fields.append({fn: m["field"], "as": alias})
+		select_fields.append(figure_column(fn, base_doctype, m["field"], alias))
 
 	size = max(1, int(page_count or 20))
 	start = max(0, (max(1, int(page_index or 1)) - 1) * size)
 	rows = frappe.get_list(
 		base_doctype,
-		filters=filters,
+		filters=frappe15_filters(base_doctype, filters),
 		fields=select_fields,
 		group_by=group_by_field,
 		order_by=f"{metric_aliases[0]} desc" if metric_aliases else None,
