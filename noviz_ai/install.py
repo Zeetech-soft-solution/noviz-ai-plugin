@@ -121,8 +121,7 @@ def _add_desktop_icon():
 		for _stale in ("Noviz AI",):
 			if frappe.db.exists("Workspace", _stale):
 				frappe.delete_doc("Workspace", _stale, force=True, ignore_permissions=True)
-			# Workspace Sidebar is Frappe v16 only.
-			if frappe.db.table_exists("Workspace Sidebar") and frappe.db.exists("Workspace Sidebar", _stale):
+			if frappe.db.exists("Workspace Sidebar", _stale):
 				frappe.delete_doc("Workspace Sidebar", _stale, force=True, ignore_permissions=True)
 		frappe.reload_doc("noviz_ai", "workspace", "erp_assistant", force=True)
 	except Exception:
@@ -178,8 +177,7 @@ _SIDEBAR_ROWS = [
 
 
 def _add_sidebar_links():
-	# Workspace Sidebar is Frappe v16 only; older sites have no such table.
-	if not frappe.db.table_exists("Workspace Sidebar") or not frappe.db.exists("Workspace Sidebar", "ERP Assistant"):
+	if not frappe.db.exists("Workspace Sidebar", "ERP Assistant"):
 		return
 	sidebar = frappe.get_doc("Workspace Sidebar", "ERP Assistant")
 	changed = False
