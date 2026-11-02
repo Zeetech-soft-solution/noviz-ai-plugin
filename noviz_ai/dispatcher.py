@@ -10,7 +10,7 @@ import json
 
 import frappe
 
-SUPPORTED_KINDS = {"get_list", "get_doc", "create_doc", "update_doc", "reply_communication", "send_communication", "mark_notification_read", "run_report", "list_inbox_emails", "send_reply_email", "aggregate", "get_actions", "run_action", "my_work"}
+SUPPORTED_KINDS = {"get_list", "get_doc", "create_doc", "update_doc", "reply_communication", "send_communication", "mark_notification_read", "run_report", "list_inbox_emails", "send_reply_email", "aggregate", "get_actions", "run_action", "my_work", "grouped_rows"}
 
 
 def _json_safe(value):
@@ -147,6 +147,13 @@ def execute_call_spec(spec: dict):
 		from noviz_ai.aggregate import run_aggregate
 
 		return _json_safe(run_aggregate(spec))
+
+	if kind == "grouped_rows":
+		# Rows grouped and summed by ERPNext for the standard analyses, a
+		# page at a time, under this person's permissions.
+		from noviz_ai.aggregate import run_grouped_rows
+
+		return _json_safe(run_grouped_rows(spec))
 
 	if kind == "get_list":
 		# Real permission check, not implied by frappe.get_list() alone —

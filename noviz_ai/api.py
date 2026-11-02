@@ -64,7 +64,9 @@ PAUSED_TURN_TTL_SECONDS = 600
 # (document_actions.py, call kinds "get_actions" and "run_action").
 # "my_work": the user's approvals, to-dos and unread notifications with
 # ERPNext's own counts, in one read (my_work.py, call kind "my_work").
-CAPABILITIES = ["native_aggregate", "document_actions", "my_work"]
+# "grouped_rows": rows grouped and summed by ERPNext for the standard
+# analyses (aggregate.py run_grouped_rows, call kind "grouped_rows").
+CAPABILITIES = ["native_aggregate", "document_actions", "my_work", "grouped_rows"]
 
 def _settings():
 	# 2026-08-21: the standalone "Enabled" checkbox was removed - a real

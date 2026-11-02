@@ -17,7 +17,10 @@ alias", the group is the alias, and a filter on a linked record's field
 becomes the matching records' names (utils.frappe15_filters).
 """
 
+import re
+
 import frappe
+from frappe.utils import add_days, getdate
 
 from noviz_ai.pdf_report import _AGGREGATE_SQL
 from noviz_ai.utils import child_parent_doctype, figure_column, frappe15_filters
@@ -140,3 +143,123 @@ def run_aggregate(spec: dict) -> dict:
 		"hasMore": start + page_count < len(ordered),
 		"overall": overall,
 	}
+
+
+# Bounds the rows one grouped_rows call returns.
+MAX_GROUPED_ROWS = 60000
+
+
+def run_grouped_rows(spec: dict) -> list:
+	"""Rows summed by ERPNext itself into months, for the relay's standard
+	analyses: the same totals per month and account the raw rows give, in a
+	fraction of the rows and one call.
+
+	spec:
+	doctype: native DocType
+	filters: native filters (the relay's period, company and base filters)
+	date_field: the date the rows are bucketed on
+	split_at: the period's first day (YYYY-MM-DD)
+	group_fields: other native fields to group on
+	sums: native numeric fields, each summed under its own name
+
+	Rows before split_at are summed into one row per group, dated the day
+	before it. From split_at on, rows are summed per month, dated the 1st of
+	the month, and the month holding split_at is dated split_at. So every
+	date comparison with the period's start and every month, quarter or year
+	bucket reads exactly as it does on the raw rows.
+
+	Returns [{<date_field>, <group fields>, <sums>}]. Sums are written as
+	Frappe 15 reads them (figure_column), filters go through frappe15_filters.
+	"""
+	doctype = spec.get("doctype")
+	date_field = spec.get("date_field")
+	group_by = spec.get("group_fields") or []
+	sums = spec.get("sums") or []
+	split_at = getdate(spec.get("split_at")) if spec.get("split_at") else None
+	if not doctype or not date_field or not split_at or not sums:
+		frappe.throw("Noviz AI: a grouped_rows call needs a doctype, date_field, split_at and sums.")
+	for field in [date_field, *group_by, *sums]:
+		if not isinstance(field, str) or not re.fullmatch(r"[a-z][a-z0-9_]*", field):
+			frappe.throw(f'Noviz AI: "{field}" is not a plain field name.')
+
+	filters = frappe15_filters(doctype, _merge_filters(spec.get("filters"), [])) or []
+	line_table = spec.get("line_table")
+	parent_doctype = None if line_table else child_parent_doctype(doctype, filters)
+	if not frappe.has_permission(doctype, "read", parent_doctype=parent_doctype):
+		frappe.throw(f"Noviz AI: you do not have permission to read {doctype} records.", frappe.PermissionError)
+
+	sum_fields = [figure_column("SUM", line_table or doctype, f, f) for f in sums]
+	buckets: dict = {}
+
+	def add(date, row):
+		key = (date, *(row.get(g) for g in group_by))
+		entry = buckets.get(key)
+		if entry is None:
+			entry = buckets[key] = {date_field: str(date), **{g: row.get(g) for g in group_by}, **{f: 0.0 for f in sums}}
+		for f in sums:
+			entry[f] += float(row.get(f) or 0)
+
+	if line_table:
+		# A document's lines (line_table), summed by month on the document's
+		# date: the documents of the period as the user, then their lines
+		# summed per document, both standard reads.
+		if not isinstance(line_table, str) or not re.fullmatch(r"[A-Za-z][A-Za-z0-9 _-]*", line_table):
+			frappe.throw(f'Noviz AI: "{line_table}" is not a DocType name.')
+		date_of = {d.name: getdate(d.get(date_field)) for d in frappe.get_list(doctype, fields=["name", date_field], filters=filters, limit_page_length=0)}
+		names = list(date_of)
+		day_before = add_days(split_at, -1)
+		for i in range(0, len(names), 1000):
+			for row in frappe.get_list(
+				line_table,
+				fields=["parent", *group_by, *sum_fields],
+				filters=[["parent", "in", names[i : i + 1000]], ["parenttype", "=", doctype]],
+				group_by=", ".join(["parent", *group_by]),
+				limit_page_length=0,
+				parent_doctype=doctype,
+			):
+				day = date_of.get(row.get("parent"))
+				if day is None:
+					continue
+				if day < split_at:
+					add(day_before, row)
+				else:
+					month = day.replace(day=1)
+					add(split_at if month <= split_at else month, row)
+		if len(buckets) > MAX_GROUPED_ROWS:
+			frappe.throw(f"Noviz AI: more than {MAX_GROUPED_ROWS} grouped rows; narrow the period.")
+		return sorted(buckets.values(), key=lambda r: (r[date_field], *(str(r.get(g) or "") for g in group_by)))
+
+	if group_by:
+		before = frappe.get_list(
+			doctype,
+			fields=[*group_by, *sum_fields],
+			filters=[*filters, [date_field, "<", split_at]],
+			group_by=", ".join(group_by),
+			limit_page_length=0,
+			parent_doctype=parent_doctype,
+		)
+	else:
+		before = frappe.get_list(
+			doctype, fields=sum_fields, filters=[*filters, [date_field, "<", split_at]], limit_page_length=0, parent_doctype=parent_doctype
+		)
+	day_before = add_days(split_at, -1)
+	for row in before:
+		if any(row.get(f) for f in sums):
+			add(day_before, row)
+
+	keys = ", ".join([date_field, *group_by])
+	for row in frappe.get_list(
+		doctype,
+		fields=[date_field, *group_by, *sum_fields],
+		filters=[*filters, [date_field, ">=", split_at]],
+		group_by=keys,
+		limit_page_length=0,
+		parent_doctype=parent_doctype,
+	):
+		day = getdate(row.get(date_field))
+		month = day.replace(day=1)
+		add(split_at if month <= split_at else month, row)
+
+	if len(buckets) > MAX_GROUPED_ROWS:
+		frappe.throw(f"Noviz AI: more than {MAX_GROUPED_ROWS} grouped rows; narrow the period.")
+	return sorted(buckets.values(), key=lambda r: (r[date_field], *(str(r.get(g) or "") for g in group_by)))
