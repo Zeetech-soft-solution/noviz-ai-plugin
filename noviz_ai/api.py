@@ -367,6 +367,10 @@ def send_message(prompt: str, previous_turn_id: str = None, can_continue=None):
 				"frappe_user": frappe.session.user,
 				"frappe_roles": frappe.get_roles(frappe.session.user),
 				"capabilities": CAPABILITIES,
+				# This site's own company, as scan_image already sends it: the
+				# relay otherwise falls back to the Noviz AI account name, and a
+				# report filtered on that is empty.
+				"company_name": frappe.defaults.get_global_default("company") or "",
 			},
 			headers,
 			session,
