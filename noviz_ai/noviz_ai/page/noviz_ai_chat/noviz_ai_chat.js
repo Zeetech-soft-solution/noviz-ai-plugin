@@ -133,6 +133,19 @@ if (!document.getElementById('noviz-ai-chat-style')) {
 		   download_pdf) — filled/primary so it reads as the "real
 		   document" action, distinct from the plain browser-print export
 		   next to it. */
+		/* The print card: a document's format and letter head, or a report's
+		   orientation, with its Download PDF, below the answer's suggestions. */
+		.noviz-ai-print {
+			display: block; max-width: 440px; margin: 12px 0 4px; padding: 10px 12px 12px;
+			border: 1px solid var(--border-color, #d1d8dd); border-left: 3px solid #1e7a5c; border-radius: 8px;
+			background: var(--subtle-fg, #f7f9f8);
+		}
+		.noviz-ai-print-title { font-size: 11px; font-weight: 600; color: #1e7a5c; text-transform: uppercase; letter-spacing: .03em; margin-bottom: 6px; }
+		.noviz-ai-print-row { display: flex; align-items: center; gap: 10px; margin: 6px 0 0; font-size: 12px; font-weight: normal; }
+		.noviz-ai-print-row span { width: 84px; flex: none; color: var(--text-muted, #6c7680); }
+		.noviz-ai-print-row select { flex: 1; min-width: 0; }
+		.noviz-ai-print-actions { display: flex; justify-content: flex-end; margin-top: 10px; }
+		.noviz-ai-print-actions a { margin: 0; }
 		.noviz-ai-doc-download {
 			background: #1e7a5c; border-color: #1e7a5c; color: #fff; font-weight: 600;
 		}
@@ -560,12 +573,90 @@ class NovizAIChat {
 			if (html) {
 				$msg.append(html);
 				$(`<button type="button" class="noviz-ai-msg-export noviz-ai-print-export">${__('Export PDF')}</button>`).appendTo($msg);
+				this.addPrintChoices($msg);
 			}
 		} else {
 			$msg.text(text);
 		}
 		this.$log.scrollTop(this.$log[0].scrollHeight);
 		return $msg;
+	}
+
+	/** The print choice before a Download PDF, as ERPNext's own print dialogs
+	 *  offer it, in one card under the answer: a document's print formats
+	 *  (ERPNext's list and order, the user's last one preselected, else the
+	 *  DocType's default) and letter heads when the site has them; an ERPNext
+	 *  report's orientation. Nothing to choose: the plain button, as before. */
+	addPrintChoices($root) {
+		$root.find('a[href*="frappe.utils.print_format.download_pdf"]').each((_, a) => {
+			const $link = $(a);
+			if ($link.closest('.noviz-ai-print').length) return;
+			const doctype = new URL($link.attr('href'), window.location.origin).searchParams.get('doctype');
+			if (!doctype) return;
+			frappe.model.with_doctype(doctype, () => {
+				const formats = frappe.meta.get_print_formats(doctype) || [];
+				const byDefault = frappe.get_meta(doctype).default_print_format || 'Standard';
+				const last = (frappe.model.user_settings[doctype] || {}).noviz_print_format;
+				const selected = formats.includes(last) ? last : formats.includes(byDefault) ? byDefault : formats[0];
+				const letterheads = Object.keys(frappe.boot.letter_heads || {});
+				if (formats.length <= 1 && !letterheads.length) return;
+				const rows = [];
+				if (formats.length > 1) {
+					rows.push({ name: 'format', label: __('Format'), items: formats.map((f) => [f, f === byDefault ? `${f} (${__('default')})` : f]), selected });
+				}
+				if (letterheads.length) {
+					rows.push({ name: 'letterhead', label: __('Letter Head'), items: [['', __("Document's letter head")], ...letterheads.map((l) => [l, l])], selected: '' });
+				}
+				this._printCard($link, rows, (url, v) => {
+					if (v.format) url.searchParams.set('format', v.format);
+					if (v.letterhead) url.searchParams.set('letterhead', v.letterhead);
+					else url.searchParams.delete('letterhead');
+				});
+				// The format downloaded is kept as the user's last one for this DocType.
+				$link.on('click', () => {
+					const chosen = new URL($link.attr('href'), window.location.origin).searchParams.get('format');
+					if (chosen) frappe.model.user_settings.save(doctype, 'noviz_print_format', chosen);
+				});
+			});
+		});
+		$root.find('a[href*="noviz_ai.api.generate_report_pdf"]').each((_, a) => {
+			const $link = $(a);
+			if ($link.closest('.noviz-ai-print').length) return;
+			let spec;
+			try {
+				spec = JSON.parse(new URL($link.attr('href'), window.location.origin).searchParams.get('spec') || '');
+			} catch (e) {
+				return;
+			}
+			// Only ERPNext's own reports; a PDF of the answer's own table keeps its plain button.
+			if (!spec || spec.source !== 'named_report') return;
+			const current = spec.orientation === 'Portrait' ? 'Portrait' : 'Landscape';
+			this._printCard($link, [{ name: 'orientation', label: __('Orientation'), items: [['Landscape', __('Landscape')], ['Portrait', __('Portrait')]], selected: current }], (url, v) => {
+				url.searchParams.set('spec', JSON.stringify({ ...spec, orientation: v.orientation }));
+			});
+		});
+	}
+
+	/** One card: its choices and the Download PDF button together, below the
+	 *  answer's suggestion buttons; each choice is set on the link as it changes. */
+	_printCard($link, rows, apply) {
+		const $card = $(`<div class="noviz-ai-print"><div class="noviz-ai-print-title">${__('Print')}</div></div>`);
+		const $selects = rows.map((r) => {
+			const $select = $('<select class="form-control input-sm"></select>').attr('name', r.name);
+			r.items.forEach(([value, text]) => $('<option></option>').attr('value', value).text(text).prop('selected', value === r.selected).appendTo($select));
+			$('<label class="noviz-ai-print-row"></label>').append($('<span></span>').text(r.label), $select).appendTo($card);
+			return $select;
+		});
+		const update = () => {
+			const url = new URL($link.attr('href'), window.location.origin);
+			apply(url, Object.fromEntries($selects.map(($s) => [$s.attr('name'), $s.val()])));
+			$link.attr('href', url.pathname + url.search);
+		};
+		$selects.forEach(($s) => $s.on('change', update));
+		update();
+		const $row = $link.closest('.erp-agent-next-steps');
+		($row.length ? $row : $link).after($card);
+		$('<div class="noviz-ai-print-actions"></div>').append($link).appendTo($card);
 	}
 
 	/** Shared by send() and sendImage() — the actual result rendering is
@@ -585,6 +676,7 @@ class NovizAIChat {
 		if (message && message.report && message.report.spec) {
 			this.appendReportLink($thinking, message.report);
 		}
+		this.addPrintChoices($thinking);
 		// Track the relay's own turnId so the NEXT message continues this
 		// same conversation instead of starting fresh — real memory, not
 		// just a longer single reply. Works the same way whether the turn
