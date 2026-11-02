@@ -7,7 +7,9 @@
 # stays on the central server (see erp-agent-platform, private) and is
 # never shipped here. See README.md for the full architecture and why
 # this repo is open source while the central brain is not.
+import threading
 import time
+from contextlib import contextmanager
 
 import frappe
 import requests
@@ -75,6 +77,30 @@ def _settings():
 			"and enter it under Noviz AI Settings."
 		)
 	return settings
+
+
+# One connection to the relay per worker thread, kept between messages: a
+# new one costs DNS, TCP and TLS before the first byte (0.1-0.2 s from the
+# relay's own server, more from far away; a kept one 0.005 s, measured
+# 2 Nov 2026). Per thread because a requests.Session is not thread-safe. A
+# call is retried only when the connection fails before anything was sent,
+# so a /turn/continue is never sent twice.
+_relay_sessions = threading.local()
+
+
+@contextmanager
+def _relay_session():
+	session = getattr(_relay_sessions, "session", None)
+	if session is None:
+		from requests.adapters import HTTPAdapter
+		from urllib3.util.retry import Retry
+
+		session = requests.Session()
+		adapter = HTTPAdapter(max_retries=Retry(total=1, connect=1, read=0, redirect=0, status=0, other=0))
+		session.mount("https://", adapter)
+		session.mount("http://", adapter)
+		_relay_sessions.session = session
+	yield session
 
 
 def _relay_headers(settings):
@@ -303,7 +329,7 @@ def continue_turn(turn_id: str):
 	settings = _settings()
 	base_url = settings.relay_base_url.rstrip("/")
 	headers = _relay_headers(settings)
-	with requests.Session() as session:
+	with _relay_session() as session:
 		return _drive_fetch_continue_loop(state["result"], base_url, headers, session, state["round_trips"], can_pause=True)
 
 
@@ -348,12 +374,9 @@ def send_message(prompt: str, previous_turn_id: str = None, can_continue=None):
 	base_url = settings.relay_base_url.rstrip("/")
 	headers = _relay_headers(settings)
 
-	# One real TCP+TLS connection to the relay, reused for every round
-	# trip THIS turn needs (see _post's own doc comment) — opened once
-	# here, closed automatically at the end of this function regardless
-	# of how the loop below exits (return or an exception propagating
-	# out of execute_call_spec/_post).
-	with requests.Session() as session:
+	# The thread's kept connection to the relay (_relay_session), reused
+	# for every round trip this turn needs and by the next message.
+	with _relay_session() as session:
 		result = _post(
 			f"{base_url}/v1/agent/turn",
 			{
@@ -402,7 +425,7 @@ def next_page(tool: str, args: str, can_continue=None):
 	base_url = settings.relay_base_url.rstrip("/")
 	headers = _relay_headers(settings)
 
-	with requests.Session() as session:
+	with _relay_session() as session:
 		result = _post(
 			f"{base_url}/v1/agent/turn/next-page",
 			{
@@ -455,7 +478,7 @@ def scan_image(note: str = None, previous_turn_id: str = None, can_continue=None
 	image_bytes = upload.read()
 	mimetype = upload.content_type or "image/jpeg"
 
-	with requests.Session() as session:
+	with _relay_session() as session:
 		try:
 			response = session.post(
 				f"{base_url}/v1/agent/scan",
