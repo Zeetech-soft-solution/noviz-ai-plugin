@@ -50,19 +50,21 @@ class _Throw(Exception):
 	pass
 
 
-def _patch(doc, workflow=None, transitions=(), submittable=True, create_ok=True, mapper=None):
+def _patch(doc, workflow=None, transitions=(), submittable=True, create_ok=True, mapper=None, apps=("frappe", "erpnext"), owner=None):
 	frappe = mock.MagicMock()
 	frappe.get_doc.side_effect = lambda *a: doc if len(a) == 2 else a[0]
 	frappe.throw.side_effect = lambda msg, *a: (_ for _ in ()).throw(_Throw(msg))
 	frappe.PermissionError = PermissionError
 	frappe.get_cached_value.return_value = "workflow_state"
-	frappe.get_meta.return_value = mock.Mock(is_submittable=submittable)
+	frappe.get_meta.return_value = mock.Mock(is_submittable=submittable, module="Buying")
+	frappe.get_installed_apps.return_value = list(apps)
 	frappe.has_permission.side_effect = lambda doctype, ptype: create_ok
 	frappe.get_attr.return_value = mapper
 	return mock.patch.multiple(
 		da,
 		frappe=frappe,
 		get_workflow_name=mock.Mock(return_value=workflow),
+		get_module_app=mock.Mock(side_effect=lambda module: owner),
 		get_transitions=mock.Mock(return_value=[{"action": a, "next_state": s} for a, s in transitions]),
 		apply_workflow=mock.Mock(side_effect=lambda d, action: (d.__setitem__("workflow_state", "Approved"), d)[1]),
 	), frappe
@@ -128,6 +130,14 @@ class TestRunAction(unittest.TestCase):
 		mapper.assert_called_once_with(source_name="PO-0012")
 		self.assertEqual(new_doc.calls, [("update", {"posting_date": "2026-10-28"}), "insert"])
 		self.assertEqual(out["name"], "PR-0001")
+		frappe.get_attr.assert_called_once_with("erpnext.x.make_purchase_receipt")
+
+	def test_make_on_a_fork_takes_the_mapper_from_the_app_that_owns_the_doctype(self):
+		mapper = mock.Mock(return_value=_Doc(doctype="Purchase Receipt", name="PR-0001"))
+		patcher, frappe = _patch(_Doc(docstatus=1), mapper=mapper, apps=("frappe", "erp_fork"), owner="erp_fork")
+		with patcher:
+			da.run_action({"doctype": "Purchase Order", "name": "PO-0012", "action": {"kind": "make", "method": "erpnext.x.make_purchase_receipt"}})
+		frappe.get_attr.assert_called_once_with("erp_fork.x.make_purchase_receipt")
 
 
 if __name__ == "__main__":
