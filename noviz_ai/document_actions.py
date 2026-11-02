@@ -7,6 +7,7 @@
 # the "make" and "server" actions it may offer (method names), as data.
 import frappe
 from frappe.model.workflow import apply_workflow, get_transitions, get_workflow_name
+from frappe.modules.utils import get_module_app
 
 
 def _read_doc(spec: dict):
@@ -20,12 +21,23 @@ def _read_doc(spec: dict):
 	return doc
 
 
-def _whitelisted(method: str):
+def _on_this_site(method: str, doctype: str) -> str:
+	# The relay declares ERPNext's standard method paths. When the site has
+	# the doctype in another app (a fork of ERPNext), the same module path is
+	# taken from the app that owns the doctype's module (Frappe's own module
+	# map, as Frappe imports it); otherwise unchanged.
+	app, _, rest = method.partition(".")
+	if not rest or app in frappe.get_installed_apps():
+		return method
+	return f"{get_module_app(frappe.get_meta(doctype).module)}.{rest}"
+
+
+def _whitelisted(method: str, doctype: str):
 	# Only a method the user could call through the API with their own
 	# session anyway: frappe.is_whitelisted raises for anything else.
 	if not method or not isinstance(method, str):
 		frappe.throw("Noviz AI: this action has no method.")
-	fn = frappe.get_attr(method)
+	fn = frappe.get_attr(_on_this_site(method, doctype))
 	frappe.is_whitelisted(fn)
 	return fn
 
@@ -88,7 +100,7 @@ def run_action(spec: dict) -> dict:
 	if kind == "make":
 		# ERPNext's own mapper builds the next document; it is saved as a
 		# draft, as the Desk does when the user saves the mapped form.
-		new_doc = _whitelisted(action.get("method"))(source_name=doc.name)
+		new_doc = _whitelisted(action.get("method"), doc.doctype)(source_name=doc.name)
 		if isinstance(new_doc, dict):
 			new_doc = frappe.get_doc(new_doc)
 		if values:
@@ -98,7 +110,7 @@ def run_action(spec: dict) -> dict:
 		return {"ok": True, "doctype": new_doc.doctype, "name": new_doc.name, "docstatus": new_doc.docstatus, "status": new_doc.get("status")}
 
 	if kind == "server":
-		result = _whitelisted(action.get("method"))(doctype=doc.doctype, name=doc.name, **values)
+		result = _whitelisted(action.get("method"), doc.doctype)(doctype=doc.doctype, name=doc.name, **values)
 		frappe.db.commit()  # nosemgrep: frappe-manual-commit
 		return {"ok": True, "doctype": doc.doctype, "name": doc.name, "result": result}
 
