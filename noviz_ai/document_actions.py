@@ -61,6 +61,11 @@ def get_actions(spec: dict) -> dict:
 				actions.append({"kind": "cancel"})
 	for offer in spec.get("offer") or []:
 		kind = offer.get("kind")
+		# ERPNext's own condition for offering it (the Desk's Create menu),
+		# as filters on this document, matched by Frappe's query engine.
+		when = offer.get("when")
+		if when and not frappe.db.exists(doc.doctype, {**when, "name": doc.name}):
+			continue
 		if kind == "make":
 			target = offer.get("targetDoctype")
 			if target and not frappe.has_permission(target, "create"):

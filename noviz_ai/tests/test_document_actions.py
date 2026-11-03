@@ -6,7 +6,8 @@ Run with `bench --site <site> run-tests --module noviz_ai.tests.test_document_ac
 
 ERPNext decides: workflow transitions come from Frappe for this user, submit
 and cancel only without a workflow and with permission, a "make" action is
-offered only with create permission on its target and runs ERPNext's own
+offered only with create permission on its target and when the document
+matches ERPNext's own condition for it, and runs ERPNext's own
 whitelisted mapper, and every refusal is Frappe's own.
 """
 import unittest
@@ -94,6 +95,19 @@ class TestGetActions(unittest.TestCase):
 		with patcher:
 			self.assertEqual(da.get_actions({"doctype": "Purchase Order", "name": "PO-0012", "offer": offer})["actions"][0]["action"], "make_purchase_receipt")
 		patcher, _ = _patch(_Doc(docstatus=1, perms=("read",)), create_ok=False)
+		with patcher:
+			self.assertEqual(da.get_actions({"doctype": "Purchase Order", "name": "PO-0012", "offer": offer})["actions"], [])
+
+	def test_make_offered_only_when_the_document_matches_its_condition(self):
+		when = {"docstatus": 1, "status": ["not in", ["Closed", "On Hold"]], "per_received": ["<", 100]}
+		offer = [{"kind": "make", "name": "make_purchase_receipt", "label": "Create Purchase Receipt", "method": "m", "targetDoctype": "Purchase Receipt", "when": when}]
+		patcher, frappe = _patch(_Doc(docstatus=1, perms=("read",)))
+		frappe.db.exists.return_value = "PO-0012"
+		with patcher:
+			self.assertEqual(da.get_actions({"doctype": "Purchase Order", "name": "PO-0012", "offer": offer})["actions"][0]["action"], "make_purchase_receipt")
+		frappe.db.exists.assert_called_once_with("Purchase Order", {**when, "name": "PO-0012"})
+		patcher, frappe = _patch(_Doc(docstatus=1, perms=("read",)))
+		frappe.db.exists.return_value = None
 		with patcher:
 			self.assertEqual(da.get_actions({"doctype": "Purchase Order", "name": "PO-0012", "offer": offer})["actions"], [])
 
