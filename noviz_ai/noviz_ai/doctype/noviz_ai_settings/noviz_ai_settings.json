@@ -18,7 +18,9 @@
   "email_username",
   "email_password",
   "policy_section",
-  "module_policies"
+  "module_policies",
+  "policy_documents_section",
+  "policy_documents_html"
  ],
  "fields": [
   {
@@ -94,13 +96,24 @@
    "fieldtype": "Table",
    "label": "Module Policies",
    "options": "Noviz AI Module Policy"
+  },
+  {
+   "fieldname": "policy_documents_section",
+   "fieldtype": "Section Break",
+   "label": "Policy Documents",
+   "description": "Word (.docx) or PDF documents for each module, or for every module (Common), several per module. Noviz AI searches them when a task needs the company's policy or procedure. A file with the same name in the same module replaces the earlier version."
+  },
+  {
+   "fieldname": "policy_documents_html",
+   "fieldtype": "HTML",
+   "label": "Policy Documents"
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "issingle": 1,
  "links": [],
- "modified": "2026-08-18 07:07:17.924386",
+ "modified": "2026-11-06 20:00:00.000000",
  "modified_by": "Administrator",
  "module": "Noviz AI",
  "name": "Noviz AI Settings",
