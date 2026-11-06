@@ -101,7 +101,7 @@
    "fieldname": "policy_documents_section",
    "fieldtype": "Section Break",
    "label": "Policy Documents",
-   "description": "Word (.docx) or PDF documents for each module, or for every module (Common), several per module. Noviz AI searches them when a task needs the company's policy or procedure. A file with the same name in the same module replaces the earlier version."
+   "description": "Word (.docx) or PDF documents for each module, or for Common, several per module. Noviz AI searches them when a task needs the company's policy or procedure. A file with the same name in the same module replaces the earlier version."
   },
   {
    "fieldname": "policy_documents_html",

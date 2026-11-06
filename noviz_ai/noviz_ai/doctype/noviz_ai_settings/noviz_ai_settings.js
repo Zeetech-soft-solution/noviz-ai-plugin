@@ -12,7 +12,7 @@ frappe.ui.form.on("Noviz AI Settings", {
 // Policy documents: Word / PDF per module or for every module (Common), kept
 // by Noviz AI (noviz_ai/policy_documents.py), searched when a task needs them.
 const POLICY_DOCUMENT_MODULES = {
-	common: __("Common (every module)"),
+	common: __("Common"),
 	selling: __("Selling"),
 	buying: __("Buying"),
 	accounting: __("Accounting"),
