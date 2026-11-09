@@ -206,7 +206,7 @@ def fetch_entity_rows(doctype: str, fields: list, filters, limit=None, order_by=
 	rows = frappe.get_list(
 		doctype,
 		fields=fields or ["name"],
-		filters=filters,
+		filters=frappe15_filters(doctype, filters),
 		order_by=order_by or None,
 		limit_page_length=page_length,
 		parent_doctype=parent_doctype,

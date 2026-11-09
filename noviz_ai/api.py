@@ -341,7 +341,7 @@ def chat_menu():
 	try:
 		settings = _settings()
 		response = requests.get(
-			settings.relay_base_url.rstrip("/") + "/chat-menu", headers=_relay_headers(settings), timeout=15
+			settings.relay_base_url.rstrip("/") + "/v1/agent/chat-menu", headers=_relay_headers(settings), timeout=15
 		)
 		if response.ok:
 			items = response.json().get("items")

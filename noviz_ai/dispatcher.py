@@ -160,7 +160,7 @@ def execute_call_spec(spec: dict):
 		# already warns against for a different cause. A real, explicit
 		# check here makes both paths behave identically and correctly.
 		# A child table is authorised through its parent (see child_parent_doctype).
-		from noviz_ai.utils import child_parent_doctype
+		from noviz_ai.utils import child_parent_doctype, frappe15_filters
 
 		parent_doctype = child_parent_doctype(doctype, spec.get("filters"))
 		if not frappe.has_permission(doctype, "read", parent_doctype=parent_doctype):
@@ -178,7 +178,7 @@ def execute_call_spec(spec: dict):
 		rows = frappe.get_list(
 			doctype,
 			fields=spec.get("fields") or ["name"],
-			filters=spec.get("filters"),
+			filters=frappe15_filters(doctype, spec.get("filters")),
 			order_by=spec.get("order_by"),
 			limit_page_length=spec.get("limit") or 20,
 			limit_start=spec.get("start") or 0,
