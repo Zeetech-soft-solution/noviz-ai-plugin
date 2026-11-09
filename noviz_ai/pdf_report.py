@@ -297,7 +297,7 @@ def run_named_report(report_name: str, filters: dict):
 	to columns_from_rows()."""
 	from frappe.desk.query_report import run as run_query_report
 
-	message = run_query_report(report_name=report_name, filters=filters or {})
+	message = run_query_report(report_name=report_name, filters=filters or {}, ignore_prepared_report=True)
 	from noviz_ai.dispatcher import _normalize_report_result
 
 	rows = _normalize_report_result(message)
@@ -332,6 +332,25 @@ def run_named_report(report_name: str, filters: dict):
 _AGGREGATE_SQL = {"sum": "SUM", "avg": "AVG", "count": "COUNT", "min": "MIN", "max": "MAX"}
 
 
+def _group_select(group_by_field: str) -> tuple:
+	"""(select field, GROUP BY) for the group. A linked record's field
+	("customer.customer_group"): Frappe 15 groups by its alias, and the alias
+	must not be a field of the document itself."""
+	if "." in group_by_field:
+		return f"{group_by_field} as _group_key", "_group_key"
+	return group_by_field, group_by_field
+
+
+def _group_rows(rows, group_by_field: str) -> list:
+	"""The rows as dicts; a linked group's value under the field's own name, as the relay's column names it."""
+	rows = [dict(r) for r in rows]
+	if "." in group_by_field:
+		column = group_by_field.split(".")[-1]
+		for r in rows:
+			r[column] = r.pop("_group_key", None)
+	return rows
+
+
 def run_aggregate_query(doctype: str, group_by_field: str, metrics: list, filters, limit=0) -> list:
 	"""metrics: [{"op": "sum"|"avg"|"count"|"min"|"max", "field": "<real native fieldname>", "label": "..."}]
 	(the relay's own buildReportSpec already validated op/field against
@@ -351,7 +370,8 @@ def run_aggregate_query(doctype: str, group_by_field: str, metrics: list, filter
 	if not frappe.has_permission(doctype, "read", parent_doctype=parent_doctype):
 		frappe.throw(f"You do not have permission to read {doctype} records.", frappe.PermissionError)
 
-	select_fields = [group_by_field]
+	group_select, group_clause = _group_select(group_by_field)
+	select_fields = [group_select]
 	metric_aliases = []
 	for m in metrics:
 		op = m["op"]
@@ -366,7 +386,7 @@ def run_aggregate_query(doctype: str, group_by_field: str, metrics: list, filter
 		doctype,
 		filters=frappe15_filters(doctype, filters),
 		fields=select_fields,
-		group_by=group_by_field,
+		group_by=group_clause,
 		# Real gap found live: a BACKTICK-quoted alias here is parsed as
 		# `tabDocType`.`fieldname` table.field notation instead of a
 		# registered function alias (see DatabaseQuery's own
@@ -380,8 +400,8 @@ def run_aggregate_query(doctype: str, group_by_field: str, metrics: list, filter
 		parent_doctype=parent_doctype,
 	)
 	# frappe.get_list's own aggregate columns already come back as plain
-	# numbers keyed by their alias — nothing further to reshape.
-	return [dict(r) for r in rows]
+	# numbers keyed by their alias.
+	return _group_rows(rows, group_by_field)
 
 
 def run_joined_aggregate(base_doctype: str, link_fields: list, group_by_field: str, metrics: list, filters, limit=0) -> list:
@@ -403,7 +423,8 @@ def run_joined_aggregate(base_doctype: str, link_fields: list, group_by_field: s
 	if not frappe.has_permission(base_doctype, "read", parent_doctype=parent_doctype):
 		frappe.throw(f"You do not have permission to read {base_doctype} records.", frappe.PermissionError)
 
-	select_fields = [group_by_field, *[lf for lf in (link_fields or []) if isinstance(lf, str) and "." in lf]]
+	group_select, group_clause = _group_select(group_by_field)
+	select_fields = [group_select, *[lf for lf in (link_fields or []) if isinstance(lf, str) and "." in lf]]
 	metric_aliases = []
 	for m in metrics:
 		fn = _AGGREGATE_SQL.get(m["op"])
@@ -417,12 +438,12 @@ def run_joined_aggregate(base_doctype: str, link_fields: list, group_by_field: s
 		base_doctype,
 		filters=frappe15_filters(base_doctype, filters),
 		fields=select_fields,
-		group_by=group_by_field,
+		group_by=group_clause,
 		order_by=f"{metric_aliases[0]} desc" if metric_aliases else None,
 		limit_page_length=max(0, int(limit or 0)),
 		parent_doctype=parent_doctype,
 	)
-	return [dict(r) for r in rows]
+	return _group_rows(rows, group_by_field)
 
 
 def run_aggregate_page(base_doctype: str, link_fields: list, group_by_field: str, metrics: list, filters, page_index=1, page_count=20) -> list:
@@ -438,7 +459,8 @@ def run_aggregate_page(base_doctype: str, link_fields: list, group_by_field: str
 	if not frappe.has_permission(base_doctype, "read", parent_doctype=parent_doctype):
 		frappe.throw(f"You do not have permission to read {base_doctype} records.", frappe.PermissionError)
 
-	select_fields = [group_by_field, *[lf for lf in (link_fields or []) if isinstance(lf, str) and "." in lf]]
+	group_select, group_clause = _group_select(group_by_field)
+	select_fields = [group_select, *[lf for lf in (link_fields or []) if isinstance(lf, str) and "." in lf]]
 	metric_aliases = []
 	for m in metrics:
 		fn = _AGGREGATE_SQL.get(m["op"])
@@ -454,13 +476,13 @@ def run_aggregate_page(base_doctype: str, link_fields: list, group_by_field: str
 		base_doctype,
 		filters=frappe15_filters(base_doctype, filters),
 		fields=select_fields,
-		group_by=group_by_field,
+		group_by=group_clause,
 		order_by=f"{metric_aliases[0]} desc" if metric_aliases else None,
 		limit_start=start,
 		limit_page_length=size,
 		parent_doctype=parent_doctype,
 	)
-	return [dict(r) for r in rows]
+	return _group_rows(rows, group_by_field)
 
 
 def columns_from_rows(rows: list, requested: list = None) -> list:

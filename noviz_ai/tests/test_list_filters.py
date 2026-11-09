@@ -43,6 +43,27 @@ class TestPlainListFilters(unittest.TestCase):
 			pdf_report.fetch_entity_rows("Sales Invoice", ["name"], FILTERS)
 		self.assertEqual(frappe.get_list.call_args.kwargs["filters"], READ_AS_V15)
 
+	def test_a_pdf_grouped_by_a_linked_field_uses_its_alias_and_keeps_the_fields_name(self):
+		patches, frappe = _patch()
+		frappe.get_list.side_effect = lambda doctype, **kw: [{"_group_key": "Retail", "sum_grand_total": 5}]
+		metrics = [{"op": "sum", "field": "grand_total"}]
+		with patches[0], patches[1], patches[2]:
+			rows = pdf_report.run_aggregate_query("Sales Invoice", "customer.customer_group", metrics, None)
+		kwargs = frappe.get_list.call_args.kwargs
+		self.assertEqual(kwargs["fields"][0], "customer.customer_group as _group_key")
+		self.assertEqual(kwargs["group_by"], "_group_key")
+		self.assertEqual(rows, [{"sum_grand_total": 5, "customer_group": "Retail"}])
+
+	def test_a_pdf_grouped_by_the_documents_own_field_is_unchanged(self):
+		patches, frappe = _patch()
+		frappe.get_list.side_effect = lambda doctype, **kw: [{"customer": "C1", "sum_grand_total": 5}]
+		metrics = [{"op": "sum", "field": "grand_total"}]
+		with patches[0], patches[1], patches[2]:
+			rows = pdf_report.run_aggregate_query("Sales Invoice", "customer", metrics, None)
+		kwargs = frappe.get_list.call_args.kwargs
+		self.assertEqual((kwargs["fields"][0], kwargs["group_by"]), ("customer", "customer"))
+		self.assertEqual(rows, [{"customer": "C1", "sum_grand_total": 5}])
+
 	def test_a_list_without_filters_is_unchanged(self):
 		patches, frappe = _patch()
 		with patches[0], patches[1], patches[2]:
