@@ -297,7 +297,7 @@ def run_named_report(report_name: str, filters: dict):
 	to columns_from_rows()."""
 	from frappe.desk.query_report import run as run_query_report
 
-	message = run_query_report(report_name=report_name, filters=filters or {})
+	message = run_query_report(report_name=report_name, filters=filters or {}, ignore_prepared_report=True)
 	from noviz_ai.dispatcher import _normalize_report_result
 
 	rows = _normalize_report_result(message)

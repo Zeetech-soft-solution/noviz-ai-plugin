@@ -86,7 +86,9 @@ def execute_call_spec(spec: dict):
 			frappe.throw('Noviz AI: a "run_report" call spec requires a "reportName" — cannot execute it.')
 		from frappe.desk.query_report import run as run_query_report
 
-		message = run_query_report(report_name=report_name, filters=spec.get("reportFilters") or {})
+		# Frappe marks a report that once took over 15 s as a "prepared report";
+		# without this it answers with no rows and only queues the report.
+		message = run_query_report(report_name=report_name, filters=spec.get("reportFilters") or {}, ignore_prepared_report=True)
 		# _json_safe here for the SAME reason every other branch uses it:
 		# a report's rows carry real Python date/datetime/Decimal objects
 		# (AR/AP Summary have due_date/posting_date columns, Decimal
