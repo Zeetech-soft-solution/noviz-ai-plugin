@@ -42,14 +42,18 @@ def _whitelisted(method: str, doctype: str):
 	return fn
 
 
+def _workflow_state(doc, workflow: str):
+	# The field is the workflow's own setting; it need not be "workflow_state".
+	return doc.get(frappe.get_cached_value("Workflow", workflow, "workflow_state_field") or "workflow_state")
+
+
 def get_actions(spec: dict) -> dict:
 	doc = _read_doc(spec)
 	actions = []
 	workflow = get_workflow_name(doc.doctype)
 	state = None
 	if workflow:
-		state_field = frappe.get_cached_value("Workflow", workflow, "workflow_state_field") or "workflow_state"
-		state = doc.get(state_field)
+		state = _workflow_state(doc, workflow)
 		for t in get_transitions(doc):
 			actions.append({"kind": "workflow", "action": t.get("action"), "next_state": t.get("next_state")})
 	else:
@@ -93,7 +97,7 @@ def run_action(spec: dict) -> dict:
 	if kind == "workflow":
 		doc = apply_workflow(doc, action.get("action"))
 		frappe.db.commit()  # nosemgrep: frappe-manual-commit
-		return {"ok": True, "doctype": doc.doctype, "name": doc.name, "docstatus": doc.docstatus, "workflow_state": doc.get("workflow_state"), "status": doc.get("status")}
+		return {"ok": True, "doctype": doc.doctype, "name": doc.name, "docstatus": doc.docstatus, "workflow_state": _workflow_state(doc, get_workflow_name(doc.doctype)), "status": doc.get("status")}
 
 	if kind in ("submit", "cancel"):
 		if get_workflow_name(doc.doctype):

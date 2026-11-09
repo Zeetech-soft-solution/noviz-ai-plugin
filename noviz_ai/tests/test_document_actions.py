@@ -127,6 +127,15 @@ class TestRunAction(unittest.TestCase):
 		self.assertEqual(out["workflow_state"], "Approved")
 		frappe.db.commit.assert_called_once()
 
+	def test_workflow_action_reports_the_workflows_own_state_field(self):
+		doc = _Doc(approval_state="Pending Approval")
+		patcher, frappe = _patch(doc, workflow="PO Approval")
+		frappe.get_cached_value.return_value = "approval_state"
+		with patcher:
+			da.apply_workflow.side_effect = lambda d, action: (d.__setitem__("approval_state", "Approved"), d)[1]
+			out = da.run_action({"doctype": "Purchase Order", "name": "PO-0012", "action": {"kind": "workflow", "action": "Approve"}})
+		self.assertEqual(out["workflow_state"], "Approved")
+
 	def test_submit_is_refused_when_a_workflow_governs_the_document(self):
 		doc = _Doc()
 		patcher, _ = _patch(doc, workflow="PO Approval")
