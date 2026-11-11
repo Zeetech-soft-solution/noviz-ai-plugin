@@ -70,6 +70,24 @@ class TestPlainListFilters(unittest.TestCase):
 			dispatcher.execute_call_spec({"kind": "get_list", "doctype": "Sales Invoice"})
 		self.assertIsNone(frappe.get_list.call_args.kwargs["filters"])
 
+	def test_a_list_asks_only_for_the_columns_this_sites_doctype_has(self):
+		# Lead.utm_source exists on Frappe 16 only; asking for it failed the
+		# whole list on a Frappe 15 site (2026-11-11).
+		patches, frappe = _patch()
+		frappe.get_meta.return_value.fields = [mock.Mock(fieldname="lead_name"), mock.Mock(fieldname="status")]
+		with patches[0], patches[1], patches[2]:
+			dispatcher.execute_call_spec({"kind": "get_list", "doctype": "Lead", "fields": ["name", "lead_name", "utm_source", "status"]})
+			pdf_report.fetch_entity_rows("Lead", ["name", "lead_name", "utm_source"], None)
+		calls = [c.kwargs["fields"] for c in frappe.get_list.call_args_list if c.args and c.args[0] == "Lead"]
+		self.assertEqual(calls, [["name", "lead_name", "status"], ["name", "lead_name"]])
+
+	def test_columns_are_asked_for_as_before_when_the_definition_cannot_be_read(self):
+		patches, frappe = _patch()
+		frappe.get_meta.side_effect = Exception("no meta")
+		with patches[0], patches[1], patches[2]:
+			dispatcher.execute_call_spec({"kind": "get_list", "doctype": "Lead", "fields": ["name", "utm_source"]})
+		self.assertEqual(frappe.get_list.call_args.kwargs["fields"], ["name", "utm_source"])
+
 
 if __name__ == "__main__":
 	unittest.main()

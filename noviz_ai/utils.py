@@ -3,7 +3,31 @@
 # one-time app-setup hook module — currently just the app-tile permission
 # gate. Kept separate so hooks.py's own "has_permission" reference stays
 # readable and doesn't pull in requests/dispatcher imports it never uses.
+import re
+
 import frappe
+
+# Columns every DocType table has, though its definition does not list them.
+STANDARD_COLUMNS = {"name", "owner", "creation", "modified", "modified_by", "docstatus", "idx", "parent", "parentfield", "parenttype"}
+
+
+def columns_on_this_site(doctype: str, fields):
+	"""The requested columns this site's own DocType has.
+
+	The relay's column lists are shared by every ERPNext version, and a field
+	one version lacks fails the whole list on the other ("Field not permitted
+	in query": Lead.utm_source on a Frappe 15 site, 2026-11-11), so ERPNext's
+	definition decides. Columns written as expressions (a linked field, an
+	alias, a figure) are left as they are; when the definition cannot be
+	read, every column is asked for as before."""
+	if not fields:
+		return fields
+	try:
+		known = STANDARD_COLUMNS | {df.fieldname for df in frappe.get_meta(doctype).fields if df.fieldname}
+	except Exception:
+		return fields
+	kept = [f for f in fields if not re.fullmatch(r"\w+", str(f)) or f in known]
+	return kept or ["name"]
 
 
 def figure_column(fn: str, doctype: str, field: str, alias: str) -> str:

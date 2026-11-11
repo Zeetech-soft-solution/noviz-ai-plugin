@@ -36,7 +36,7 @@
 # keep the plain original render.
 import frappe
 
-from noviz_ai.utils import child_parent_doctype, figure_column, frappe15_filters
+from noviz_ai.utils import child_parent_doctype, columns_on_this_site, figure_column, frappe15_filters
 
 
 def _escape(value) -> str:
@@ -205,7 +205,7 @@ def fetch_entity_rows(doctype: str, fields: list, filters, limit=None, order_by=
 		page_length = REPORT_ROW_CAP
 	rows = frappe.get_list(
 		doctype,
-		fields=fields or ["name"],
+		fields=columns_on_this_site(doctype, fields or ["name"]),
 		filters=frappe15_filters(doctype, filters),
 		order_by=order_by or None,
 		limit_page_length=page_length,
