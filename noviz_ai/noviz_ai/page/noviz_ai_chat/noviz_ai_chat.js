@@ -36,6 +36,12 @@ if (!document.getElementById('noviz-ai-chat-style')) {
 		.noviz-ai-logo .icon { width: 24px; height: 24px; }
 		.noviz-ai-header-text h3 { margin: 0; font-size: 16px; }
 		.noviz-ai-header-text .noviz-ai-subtitle { font-size: 12px; color: var(--text-muted, #8d99a6); }
+		/* The company the chat works in: plain text for a one-company user, a
+		   selection when the user may work in several. */
+		.noviz-ai-company-select {
+			font-size: 12px; color: var(--text-color, #1f272e); background: transparent;
+			border: 1px solid var(--border-color, #d1d8dd); border-radius: 6px; padding: 1px 4px; max-width: 260px;
+		}
 
 		.noviz-ai-chat-log { flex: 1; overflow-y: auto; padding: 0; }
 		.noviz-ai-chat-msg {
@@ -205,6 +211,10 @@ class NovizAIChat {
 		// instance only — a reload is a genuinely new conversation, same
 		// session boundary Pro's own memory uses.
 		this.lastTurnId = null;
+		// The one company this chat works in (the header's selection): sent
+		// with every request, so every answer is for that company. Null
+		// until loaded: the server then uses the user's default company.
+		this.company = null;
 		this.render();
 	}
 
@@ -215,7 +225,7 @@ class NovizAIChat {
 					<span class="noviz-ai-logo">${frappe.utils.icon('bot', 'lg')}</span>
 					<div class="noviz-ai-header-text">
 						<h3>${__('Noviz AI')}</h3>
-						<div class="noviz-ai-subtitle">${__('ERP Assistant for')} ${frappe.defaults.get_default('company') || frappe.sys_defaults.company || ''}</div>
+						<div class="noviz-ai-subtitle">${__('ERP Assistant for')} <span class="noviz-ai-company"></span></div>
 					</div>
 				</div>
 				<div class="noviz-ai-chat-log"></div>
@@ -233,6 +243,7 @@ class NovizAIChat {
 			</div>
 		`).appendTo(this.page.body);
 
+		this.loadCompanies();
 		this.$log = this.$container.find('.noviz-ai-chat-log');
 		this.$input = this.$container.find('.noviz-ai-chat-input');
 		this.$sendBtn = this.$container.find('.noviz-ai-chat-send');
@@ -343,7 +354,7 @@ class NovizAIChat {
 			this.$sendBtn.prop('disabled', true);
 			const $placeholder = this.addMessage('assistant', __('Loading...'));
 			const stopThinking = this._startThinking($placeholder);
-			this._call('noviz_ai.api.next_page', { tool: payload.tool, args: JSON.stringify(payload.args || {}), can_continue: 1 })
+			this._call('noviz_ai.api.next_page', { tool: payload.tool, args: JSON.stringify(payload.args || {}), can_continue: 1, company: this.company })
 				.then((message) => this._untilFinal(message))
 				.then(
 					(message) => { stopThinking(); this._renderTurnResult($placeholder, message); },
@@ -602,7 +613,7 @@ class NovizAIChat {
 		const $thinking = this.addMessage('assistant', __('Thinking...'));
 		const stopThinking = this._startThinking($thinking);
 
-		this._call('noviz_ai.api.send_message', { prompt: prompt, previous_turn_id: this.lastTurnId, can_continue: 1 })
+		this._call('noviz_ai.api.send_message', { prompt: prompt, previous_turn_id: this.lastTurnId, can_continue: 1, company: this.company })
 			.then((message) => this._untilFinal(message))
 			.then(
 				(message) => { stopThinking(); this._renderTurnResult($thinking, message); },
@@ -619,6 +630,38 @@ class NovizAIChat {
 				this.sending = false;
 				this.$sendBtn.prop('disabled', false);
 			});
+	}
+
+	/** The header's company: the companies this user may work in (ERPNext's
+	 *  own permissions, noviz_ai.api.companies), starting on the user's
+	 *  default company or the one chosen last time on this browser. One
+	 *  company at a time, never all. A change starts a new conversation:
+	 *  the earlier answers were for the other company. */
+	loadCompanies() {
+		const $slot = this.$container.find('.noviz-ai-company');
+		const storageKey = `noviz_ai_company:${frappe.session.user}`;
+		$slot.text(frappe.defaults.get_default('company') || frappe.sys_defaults.company || '');
+		frappe.call({ method: 'noviz_ai.api.companies', callback: (r) => {
+			const data = r.message || {};
+			const companies = Array.isArray(data.companies) ? data.companies : [];
+			let remembered = null;
+			try { remembered = window.localStorage.getItem(storageKey); } catch (e) { /* storage unavailable */ }
+			this.company = companies.includes(remembered) ? remembered : (data.selected || null);
+			if (companies.length < 2) {
+				if (this.company) $slot.text(this.company);
+				return;
+			}
+			const $select = $('<select class="noviz-ai-company-select"></select>').attr('aria-label', __('Company'));
+			companies.forEach((name) => $select.append($('<option></option>').val(name).text(name)));
+			$select.val(this.company);
+			$select.on('change', () => {
+				this.company = $select.val();
+				try { window.localStorage.setItem(storageKey, this.company); } catch (e) { /* storage unavailable */ }
+				this.lastTurnId = null;
+				this.addMessage('assistant', __('Now working in {0}.', [this.company]));
+			});
+			$slot.empty().append($select);
+		} });
 	}
 
 	/** frappe.call as a promise: resolves with the method's message, rejects
@@ -766,6 +809,7 @@ class NovizAIChat {
 		if (note) formData.append('note', note);
 		if (this.lastTurnId) formData.append('previous_turn_id', this.lastTurnId);
 		formData.append('can_continue', '1');
+		if (this.company) formData.append('company', this.company);
 
 		fetch('/api/method/noviz_ai.api.scan_image', {
 			method: 'POST',
