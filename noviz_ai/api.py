@@ -333,6 +333,38 @@ def continue_turn(turn_id: str):
 		return _drive_fetch_continue_loop(state["result"], base_url, headers, session, state["round_trips"], can_pause=True)
 
 
+def _user_companies():
+	"""The companies the logged-in user may work in, by name: ERPNext's own
+	answer. frappe.get_list applies the user's permissions (role permissions
+	and User Permissions on Company), so a user limited to one company gets
+	that one. Empty when the user may not read Company at all."""
+	try:
+		return frappe.get_list("Company", pluck="name", order_by="name asc", limit_page_length=0)
+	except frappe.PermissionError:
+		return []
+
+
+def _working_company(company=None):
+	"""The one company a request is made for: the company selected in the
+	chat when the user may work in it; otherwise the user's default company,
+	then the site's. Never a company the user may not see, and never "all":
+	the relay reads, totals and creates in this company only."""
+	allowed = _user_companies()
+	if company and company in allowed:
+		return company
+	default = frappe.defaults.get_user_default("company") or frappe.defaults.get_global_default("company") or ""
+	if default in allowed or not allowed:
+		return default
+	return allowed[0]
+
+
+@frappe.whitelist()
+def companies():
+	"""The chat's company selection: the companies this user may work in and
+	the one the chat starts in (the user's default company)."""
+	return {"companies": _user_companies(), "selected": _working_company()}
+
+
 @frappe.whitelist()
 def chat_menu():
 	"""The chat's + menu items beyond Attach and Scan (Approvals, Mail, ...),
@@ -352,7 +384,7 @@ def chat_menu():
 
 
 @frappe.whitelist()
-def send_message(prompt: str, previous_turn_id: str = None, can_continue=None):
+def send_message(prompt: str, previous_turn_id: str = None, can_continue=None, company: str = None):
 	"""The one real entry point real users hit from the chat page for a
 	typed message. See _drive_fetch_continue_loop's own doc comment for
 	what happens after the first request.
@@ -390,10 +422,9 @@ def send_message(prompt: str, previous_turn_id: str = None, can_continue=None):
 				"frappe_user": frappe.session.user,
 				"frappe_roles": frappe.get_roles(frappe.session.user),
 				"capabilities": CAPABILITIES,
-				# This site's own company, as scan_image already sends it: the
-				# relay otherwise falls back to the Noviz AI account name, and a
-				# report filtered on that is empty.
-				"company_name": frappe.defaults.get_global_default("company") or "",
+				# The company selected in the chat (see _working_company): the
+				# relay makes every call of this question for it.
+				"company_name": _working_company(company),
 			},
 			headers,
 			session,
@@ -402,7 +433,7 @@ def send_message(prompt: str, previous_turn_id: str = None, can_continue=None):
 
 
 @frappe.whitelist()
-def next_page(tool: str, args: str, can_continue=None):
+def next_page(tool: str, args: str, can_continue=None, company: str = None):
 	"""Real, explicit product ask (2026-08-22): "u generate next page
 	urself too... now it needs to send llm, remove that" — a "Show me
 	more"/"Download complete PDF" button click already carries the EXACT
@@ -434,6 +465,8 @@ def next_page(tool: str, args: str, can_continue=None):
 				"frappe_user": frappe.session.user,
 				"frappe_roles": frappe.get_roles(frappe.session.user),
 				"capabilities": CAPABILITIES,
+				# The next page is of the company the chat is in, as its first page was.
+				"company_name": _working_company(company),
 			},
 			headers,
 			session,
@@ -442,7 +475,7 @@ def next_page(tool: str, args: str, can_continue=None):
 
 
 @frappe.whitelist()
-def scan_image(note: str = None, previous_turn_id: str = None, can_continue=None):
+def scan_image(note: str = None, previous_turn_id: str = None, can_continue=None, company: str = None):
 	"""Real port of Pro's own attach/camera scan feature (Composer.tsx's
 	📎/📷 buttons -> agent.routes.ts's /scan route -> documentScanner.ts),
 	adapted for this thin-plugin architecture: the image itself travels
@@ -489,12 +522,11 @@ def scan_image(note: str = None, previous_turn_id: str = None, can_continue=None
 					"previous_turn_id": previous_turn_id or "",
 					"note": note or "",
 					"capabilities": frappe.as_json(CAPABILITIES),
-					# Real, generic own-company hint the relay uses to tell
-					# "we're the recipient, not the customer/supplier" apart
-					# — see relay.routes.ts's own /scan route doc comment.
-					# frappe.defaults, not a hardcoded value, so this holds
-					# for whatever company any given site actually runs as.
-					"company_name": frappe.defaults.get_global_default("company") or "",
+					# The company selected in the chat (see _working_company).
+					# The relay also uses it to tell "we're the recipient, not
+					# the customer/supplier" apart — see relay.routes.ts's own
+					# /scan route doc comment.
+					"company_name": _working_company(company),
 				},
 				headers=headers,
 				timeout=REQUEST_TIMEOUT_SECONDS,
