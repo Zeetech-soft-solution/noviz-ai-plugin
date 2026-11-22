@@ -176,6 +176,11 @@ def _post(url, json_body, headers, session=None):
 				"Noviz AI's usage budget has been used up. Contact Noviz AI to add capacity, or it resumes automatically at the next reset.",
 			)
 		)
+	if response.status_code == 403:
+		# The company keeps a Noviz AI Users list and this user is not on it
+		# (Noviz AI Settings > Noviz AI Users). The relay's message says so
+		# and names the user.
+		frappe.throw(response.json().get("error", "Noviz AI is not switched on for your user. Ask your administrator to add you to the Noviz AI users."))
 	response.raise_for_status()
 	return response.json()
 
@@ -538,6 +543,8 @@ def scan_image(note: str = None, previous_turn_id: str = None, can_continue=None
 				"Noviz AI could not authenticate with the relay. Your API key may be invalid, revoked, or your trial may have expired. "
 				"Ask your administrator to check Noviz AI Settings, or contact Noviz AI for a new key."
 			)
+		if response.status_code == 403:
+			frappe.throw(response.json().get("error", "Noviz AI is not switched on for your user. Ask your administrator to add you to the Noviz AI users."))
 		if response.status_code == 422:
 			frappe.throw(response.json().get("error", "Could not read anything from this image — try a clearer, well-lit photo"))
 		response.raise_for_status()

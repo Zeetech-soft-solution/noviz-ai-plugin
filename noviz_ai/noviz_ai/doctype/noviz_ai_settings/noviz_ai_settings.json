@@ -9,6 +9,8 @@
   "relay_base_url",
   "api_key",
   "user_email",
+  "users_section",
+  "chat_users",
   "email_section",
   "email_host",
   "email_port",
@@ -43,6 +45,18 @@
    "fieldtype": "Data",
    "label": "User Email",
    "options": "Email"
+  },
+  {
+   "fieldname": "users_section",
+   "fieldtype": "Section Break",
+   "label": "Noviz AI Users",
+   "description": "The ERPNext users who may use Noviz AI, up to the users in your subscription. Saving gives each of them the Noviz AI Agent role and sends the list to Noviz AI; a user taken off the list loses the role. Until a list is saved, every user with the Noviz AI Agent role may ask."
+  },
+  {
+   "fieldname": "chat_users",
+   "fieldtype": "Table",
+   "label": "Users",
+   "options": "Noviz AI User"
   },
   {
    "fieldname": "email_section",
@@ -113,7 +127,7 @@
  "index_web_pages_for_search": 1,
  "issingle": 1,
  "links": [],
- "modified": "2026-11-06 20:00:00.000000",
+ "modified": "2026-11-22 12:00:00.000000",
  "modified_by": "Administrator",
  "module": "Noviz AI",
  "name": "Noviz AI Settings",
