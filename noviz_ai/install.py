@@ -9,7 +9,7 @@ NOVIZ_LOGO = "/assets/noviz_ai/images/icon-master.svg"
 def after_install():
 	_create_agent_role()
 	_grant_page_doctype_permission()
-	_grant_settings_doctype_permission()
+	_remove_settings_read_for_agent_role()
 	_grant_agent_role_to_system_managers()
 	_add_desktop_icon()
 	_add_sidebar_links()
@@ -25,7 +25,7 @@ def after_migrate():
 	after install self-heals. Every step is idempotent."""
 	_create_agent_role()
 	_grant_page_doctype_permission()
-	_grant_settings_doctype_permission()
+	_remove_settings_read_for_agent_role()
 	_grant_agent_role_to_system_managers()
 	_add_desktop_icon()
 	_add_sidebar_links()
@@ -65,27 +65,29 @@ def _grant_page_doctype_permission():
 	frappe.clear_cache(doctype="Page")
 
 
-def _grant_settings_doctype_permission():
-	if frappe.db.exists("Custom DocPerm", {"parent": "Noviz AI Settings", "role": "Noviz AI Agent"}):
-		return
-	frappe.get_doc(
-		{
-			"doctype": "Custom DocPerm",
-			"parent": "Noviz AI Settings",
-			"parenttype": "DocType",
-			"parentfield": "permissions",
-			"role": "Noviz AI Agent",
-			"read": 1,
-		}
-	).insert(ignore_permissions=True)
-	frappe.clear_cache(doctype="Noviz AI Settings")
+def _remove_settings_read_for_agent_role():
+	"""Noviz AI Settings are for administrators only (System Manager). Earlier
+	versions let the Noviz AI Agent role read them; that permission is removed.
+	The chat never needs it: the plugin reads its settings itself on the server."""
+	names = frappe.get_all("Custom DocPerm", filters={"parent": "Noviz AI Settings", "role": "Noviz AI Agent"}, pluck="name")
+	for name in names:
+		frappe.delete_doc("Custom DocPerm", name, force=True, ignore_permissions=True)
+	if names:
+		frappe.clear_cache(doctype="Noviz AI Settings")
 
 
 def _grant_agent_role_to_system_managers():
 	"""Give every existing System Manager the "Noviz AI Agent" role on
 	install/migrate, so whoever set the site up can use the chat straight
 	away instead of assigning the role to themselves first. Idempotent —
-	skips users who already have it, and Administrator/Guest."""
+	skips users who already have it, and Administrator/Guest.
+
+	Not once the site keeps a Noviz AI Users list (Noviz AI Settings): the
+	role then follows that list (chat_users.py)."""
+	from noviz_ai.chat_users import has_chat_user_list
+
+	if has_chat_user_list():
+		return
 	try:
 		users = frappe.get_all(
 			"Has Role",
