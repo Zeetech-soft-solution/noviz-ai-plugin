@@ -1,16 +1,14 @@
 # My work (call kind "my_work"): what is waiting for this user in ERPNext,
 # read in one call as frappe.session.user with ERPNext's own rules:
-# - counts: the Desk's own open counts (frappe.desk.notifications), and the
-#   unread notifications;
 # - approvals: open Workflow Actions this user's roles may take (Frappe's own
 #   permission query), on documents whose workflow state is still undecided
 #   (the state's Doc Status is Draft in the workflow); for each document, its
-#   list-view details and the steps this user may take now (get_transitions);
+#   list-view details and the steps this user may take now (get_transitions,
+#   each step once, as ERPNext's own approval email lists them);
 # - to do: the user's own open ToDos (assigned to them);
 # - notifications: the user's unread Notification Log entries.
 # Nothing here writes; approving runs through run_action as before.
 import frappe
-from frappe.desk.notifications import get_notifications
 from frappe.model.workflow import get_transitions, get_workflow_name
 from frappe.utils import cstr, get_fullname, strip_html
 
@@ -50,7 +48,8 @@ def _state_field(doctype: str) -> str:
 def _details(doctype: str, names: list) -> dict:
 	"""Each document's title and the fields ERPNext shows in its list view, formatted, read as this user."""
 	meta = frappe.get_meta(doctype)
-	fields = [df for df in meta.fields if df.in_list_view and df.fieldtype not in SKIP_FIELDTYPES][:MAX_DETAILS]
+	# The title goes with the document's name, not again among the details.
+	fields = [df for df in meta.fields if df.in_list_view and df.fieldtype not in SKIP_FIELDTYPES and df.fieldname != meta.title_field][:MAX_DETAILS]
 	wanted = ["name"] + ([meta.title_field] if meta.title_field and meta.title_field != "name" else []) + [df.fieldname for df in fields]
 	if any(df.fieldtype == "Currency" for df in fields) and meta.has_field("currency"):
 		wanted.append("currency")
@@ -138,7 +137,12 @@ def _approvals(limit: int, offset: int):
 		actions = []
 		try:
 			doc = frappe.get_doc(r.reference_doctype, r.reference_name)
-			actions = [{"action": t.get("action"), "next_state": t.get("next_state")} for t in get_transitions(doc)]
+			# Each step once (a workflow may offer the same step to several roles).
+			seen = set()
+			for t in get_transitions(doc):
+				if t.get("action") not in seen:
+					seen.add(t.get("action"))
+					actions.append({"action": t.get("action"), "next_state": t.get("next_state")})
 		except (frappe.PermissionError, frappe.DoesNotExistError):
 			continue
 		except frappe.ValidationError:
@@ -217,14 +221,12 @@ def _notifications(limit: int, offset: int):
 def get_my_work(spec: dict) -> dict:
 	"""Counts and the requested rows of each part; spec: {approvals: n, todos: n, notifications: n, offset: {part: n}}."""
 	offset = spec.get("offset") or {}
-	open_counts = (get_notifications() or {}).get("open_count_doctype") or {}
 	approvals_total, approvals = _approvals(_limit(spec, "approvals"), int(offset.get("approvals") or 0))
 	todos_total, todos = _todos(_limit(spec, "todos"), int(offset.get("todos") or 0))
 	notes_total, notes = _notifications(_limit(spec, "notifications"), int(offset.get("notifications") or 0))
 	return {
 		"counts": {
 			"approvals": approvals_total,
-			"open_workflow_actions": open_counts.get("Workflow Action"),
 			"todos": todos_total,
 			"notifications": notes_total,
 		},
