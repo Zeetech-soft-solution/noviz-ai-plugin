@@ -307,7 +307,7 @@ class NovizAIChat {
 			if (!this.$menu.prop('hidden') && !$(e.target).closest('.noviz-ai-chat-input-row').length) closeMenu();
 		});
 		$(document).on('keydown.noviz-ai-menu', (e) => { if (e.key === 'Escape') closeMenu(); });
-		const MENU_ICONS = { approvals: '⏳', mail: '✉️', notifications: '🔔' };
+		const MENU_ICONS = { my_work: '📋', approvals: '⏳', mail: '✉️', notifications: '🔔' };
 		frappe.call({ method: 'noviz_ai.api.chat_menu', callback: (r) => {
 			(r.message || []).forEach((item) => {
 				const $item = $('<button type="button" class="noviz-ai-menu-item" role="menuitem"></button>')
@@ -315,6 +315,11 @@ class NovizAIChat {
 					.append($('<span></span>').text(item.label));
 				$item.on('click', () => {
 					if (this.sending) return;
+					// An item the relay answers without the model (My work) carries its query.
+					if (item.query) {
+						this.addMessage('user', item.label);
+						return this.runQuery(item.query);
+					}
 					if (item.prompt) return this.send(item.prompt);
 					this.addMessage('user', item.label);
 					this.addMessage('assistant', item.empty || '');
@@ -350,21 +355,7 @@ class NovizAIChat {
 				// to the normal LLM-driven path via data-action instead.
 				return this.send($btn.attr('data-action'), true);
 			}
-			this.sending = true;
-			this.$sendBtn.prop('disabled', true);
-			const $placeholder = this.addMessage('assistant', __('Loading...'));
-			const stopThinking = this._startThinking($placeholder);
-			this._call('noviz_ai.api.next_page', { tool: payload.tool, args: JSON.stringify(payload.args || {}), can_continue: 1, company: this.company })
-				.then((message) => this._untilFinal(message))
-				.then(
-					(message) => { stopThinking(); this._renderTurnResult($placeholder, message); },
-					() => { stopThinking(); $placeholder.remove(); }
-				)
-				.finally(() => {
-					stopThinking();
-					this.sending = false;
-					this.$sendBtn.prop('disabled', false);
-				});
+			this.runQuery(payload);
 		});
 		// A row's own id, or a next_steps action button, inside the
 		// injected HTML is a real clickable prompt-sender — same
@@ -534,6 +525,26 @@ class NovizAIChat {
 			setTimeout(() => $label.text(stages[i]).css('opacity', 1), 200);
 		}, 2600);
 		return () => clearInterval(timer);
+	}
+
+	// A call the relay answers without the model ({tool, args}): a button's
+	// data-query, or a menu item's query. Same fetch loop as a question.
+	runQuery(payload) {
+		this.sending = true;
+		this.$sendBtn.prop('disabled', true);
+		const $placeholder = this.addMessage('assistant', __('Loading...'));
+		const stopThinking = this._startThinking($placeholder);
+		return this._call('noviz_ai.api.next_page', { tool: payload.tool, args: JSON.stringify(payload.args || {}), can_continue: 1, company: this.company })
+			.then((message) => this._untilFinal(message))
+			.then(
+				(message) => { stopThinking(); this._renderTurnResult($placeholder, message); },
+				() => { stopThinking(); $placeholder.remove(); }
+			)
+			.finally(() => {
+				stopThinking();
+				this.sending = false;
+				this.$sendBtn.prop('disabled', false);
+			});
 	}
 
 	addMessage(role, text, html) {

@@ -62,7 +62,9 @@ PAUSED_TURN_TTL_SECONDS = 600
 # while its dispatcher still rejected the call, so the relay ignores it.
 # "document_actions": what can happen next to a document and running it
 # (document_actions.py, call kinds "get_actions" and "run_action").
-CAPABILITIES = ["native_aggregate", "document_actions"]
+# "my_work": the user's approvals, to-dos and unread notifications with
+# ERPNext's own counts, in one read (my_work.py, call kind "my_work").
+CAPABILITIES = ["native_aggregate", "document_actions", "my_work"]
 
 def _settings():
 	# 2026-08-21: the standalone "Enabled" checkbox was removed - a real
