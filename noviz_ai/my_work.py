@@ -15,6 +15,8 @@ from frappe.model.workflow import get_transitions, get_workflow_name
 from frappe.utils import cstr, get_fullname, strip_html
 
 MAX_ROWS = 20
+# Open approvals read to find the ones still waiting (newest first).
+MAX_SCAN = 2000
 MAX_DETAILS = 4
 SKIP_FIELDTYPES = {"Table", "Table MultiSelect", "Section Break", "Column Break", "Tab Break", "HTML", "Button", "Attach Image", "Image", "Text Editor", "HTML Editor", "Code", "JSON"}
 
@@ -68,8 +70,13 @@ def _(text):
 	return frappe._(text) if text else text
 
 
-def _approvals(limit: int, offset: int):
-	# Frappe's own permission query limits Workflow Action to this user's roles.
+def _waiting_actions() -> list:
+	"""Open Workflow Actions this user's roles may take (Frappe's own permission
+	query) on documents still in the action's state, a state in which the
+	document is undecided; newest first. ERPNext completes an action when its
+	document moves on, but older data keeps some open: the document's current
+	state decides, read as the user (one read per document type, which also
+	leaves out documents this user may not read)."""
 	groups = frappe.get_list(
 		"Workflow Action",
 		filters={"status": "Open"},
@@ -78,16 +85,13 @@ def _approvals(limit: int, offset: int):
 		order_by="reference_doctype asc",
 	)
 	undecided = {}
+	pairs = set()
 	for g in groups:
-		states = undecided.setdefault(g.reference_doctype, _undecided_states(g.reference_doctype))
-		if g.workflow_state not in states:
-			g.skip = True
-	waiting = [g for g in groups if not g.get("skip")]
-	total = sum(g.count for g in waiting)
-	if not waiting or not limit:
-		return total, []
-	pairs = {(g.reference_doctype, g.workflow_state) for g in waiting}
-	rows = frappe.get_list(
+		if g.workflow_state in undecided.setdefault(g.reference_doctype, _undecided_states(g.reference_doctype)):
+			pairs.add((g.reference_doctype, g.workflow_state))
+	if not pairs:
+		return []
+	actions = frappe.get_list(
 		"Workflow Action",
 		filters={
 			"status": "Open",
@@ -96,10 +100,27 @@ def _approvals(limit: int, offset: int):
 		},
 		fields=["name", "reference_doctype", "reference_name", "workflow_state", "owner", "creation"],
 		order_by="creation desc",
-		start=offset,
-		page_length=limit * 2,
+		page_length=MAX_SCAN,
 	)
-	rows = [r for r in rows if (r.reference_doctype, r.workflow_state) in pairs][:limit]
+	actions = [a for a in actions if (a.reference_doctype, a.workflow_state) in pairs]
+	names = {}
+	for a in actions:
+		names.setdefault(a.reference_doctype, set()).add(a.reference_name)
+	current = set()
+	for doctype, docnames in names.items():
+		field = _state_field(doctype)
+		try:
+			for d in frappe.get_list(doctype, filters={"name": ["in", sorted(docnames)]}, fields=["name", field], page_length=len(docnames)):
+				current.add((doctype, d.name, d.get(field)))
+		except frappe.PermissionError:
+			continue
+	return [a for a in actions if (a.reference_doctype, a.reference_name, a.workflow_state) in current]
+
+
+def _approvals(limit: int, offset: int):
+	waiting = _waiting_actions()
+	total = len(waiting)
+	rows = waiting[offset : offset + limit]
 	by_doctype = {}
 	for r in rows:
 		by_doctype.setdefault(r.reference_doctype, []).append(r.reference_name)
@@ -117,10 +138,6 @@ def _approvals(limit: int, offset: int):
 		actions = []
 		try:
 			doc = frappe.get_doc(r.reference_doctype, r.reference_name)
-			# An action left open after the document moved on (ERPNext completes
-			# it on the next step; older data keeps some): not waiting any more.
-			if doc.get(_state_field(r.reference_doctype)) != r.workflow_state:
-				continue
 			actions = [{"action": t.get("action"), "next_state": t.get("next_state")} for t in get_transitions(doc)]
 		except (frappe.PermissionError, frappe.DoesNotExistError):
 			continue
