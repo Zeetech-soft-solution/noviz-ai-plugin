@@ -40,6 +40,11 @@ def _undecided_states(doctype: str) -> set:
 	return {s.state for s in workflow.states if cstr(s.doc_status) == "0"}
 
 
+def _state_field(doctype: str) -> str:
+	"""The field holding the document's workflow state (the workflow's own setting)."""
+	return frappe.get_cached_value("Workflow", get_workflow_name(doctype), "workflow_state_field") or "workflow_state"
+
+
 def _details(doctype: str, names: list) -> dict:
 	"""Each document's title and the fields ERPNext shows in its list view, formatted, read as this user."""
 	meta = frappe.get_meta(doctype)
@@ -112,6 +117,10 @@ def _approvals(limit: int, offset: int):
 		actions = []
 		try:
 			doc = frappe.get_doc(r.reference_doctype, r.reference_name)
+			# An action left open after the document moved on (ERPNext completes
+			# it on the next step; older data keeps some): not waiting any more.
+			if doc.get(_state_field(r.reference_doctype)) != r.workflow_state:
+				continue
 			actions = [{"action": t.get("action"), "next_state": t.get("next_state")} for t in get_transitions(doc)]
 		except (frappe.PermissionError, frappe.DoesNotExistError):
 			continue
