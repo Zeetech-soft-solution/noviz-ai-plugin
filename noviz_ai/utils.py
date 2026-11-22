@@ -30,6 +30,60 @@ def columns_on_this_site(doctype: str, fields):
 	return kept or ["name"]
 
 
+def older_names_here(doctype: str, older) -> dict:
+	"""The renames that apply on this site: current name -> the older name this DocType has.
+
+	ERPNext 16's field names are the standard the relay sends; a field ERPNext
+	renamed comes with its older name (call spec "older_names", e.g.
+	{"utm_source": "source"}). On this site, when the DocType lacks the current
+	field and has the older one, the older one is read under the current name,
+	so the answer has the same shape on every version."""
+	if not isinstance(older, dict) or not older:
+		return {}
+	try:
+		defined = {df.fieldname for df in frappe.get_meta(doctype).fields if df.fieldname}
+	except Exception:
+		return {}
+	return {
+		current: old
+		for current, old in older.items()
+		if isinstance(old, str) and re.fullmatch(r"\w+", current) and re.fullmatch(r"\w+", old) and current not in defined and old in defined
+	}
+
+
+def rename_columns(columns, here: dict):
+	"""Columns already on their older names: each read as the current name ("source as utm_source")."""
+	if not here:
+		return columns
+	current = {old: now for now, old in here.items()}
+	return [f"{c} as {current[c]}" if c in current else c for c in columns]
+
+
+def rename_filters(filters, here: dict):
+	"""Filters ({field: value}, [field, op, value] or [doctype, field, op, value]) on the older field."""
+	if not here or not filters:
+		return filters
+	if isinstance(filters, dict):
+		return {here.get(k, k): v for k, v in filters.items()}
+	out = []
+	for f in filters:
+		if isinstance(f, (list, tuple)) and len(f) == 4 and f[1] in here:
+			f = [f[0], here[f[1]], f[2], f[3]]
+		elif isinstance(f, (list, tuple)) and len(f) != 4 and f and f[0] in here:
+			f = [here[f[0]], *f[1:]]
+		out.append(f)
+	return out
+
+
+def rename_order_by(order_by, here: dict):
+	"""Sort on the older field, bare or written `tabDocType`.`field`."""
+	if not order_by or not here:
+		return order_by
+	for current, old in here.items():
+		order_by = re.sub(r"(^|[\s,.`])" + current + r"(?=[`\s,]|$)", lambda m: m.group(1) + old, order_by)
+	return order_by
+
+
 def figure_column(fn: str, doctype: str, field: str, alias: str) -> str:
 	"""A SUM/COUNT/AVG/MIN/MAX column for get_list, as Frappe 15 reads it.
 	SUM/COUNT/AVG name the field with its table: when the query also reads a

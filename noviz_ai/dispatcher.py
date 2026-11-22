@@ -167,7 +167,7 @@ def execute_call_spec(spec: dict):
 		# already warns against for a different cause. A real, explicit
 		# check here makes both paths behave identically and correctly.
 		# A child table is authorised through its parent (see child_parent_doctype).
-		from noviz_ai.utils import child_parent_doctype, columns_on_this_site, frappe15_filters
+		from noviz_ai.utils import child_parent_doctype, columns_on_this_site, frappe15_filters, older_names_here, rename_columns, rename_filters, rename_order_by
 
 		parent_doctype = child_parent_doctype(doctype, spec.get("filters"))
 		if not frappe.has_permission(doctype, "read", parent_doctype=parent_doctype):
@@ -182,11 +182,13 @@ def execute_call_spec(spec: dict):
 		# way. The local (non-relay) product's own erpnextConnector.ts
 		# already builds a real order_by string with this exact tie-break
 		# shape — mirrored here so both paths behave identically.
+		# A field ERPNext 15 names differently is read by that name, under the current one.
+		here = older_names_here(doctype, spec.get("older_names"))
 		rows = frappe.get_list(
 			doctype,
-			fields=columns_on_this_site(doctype, spec.get("fields") or ["name"]),
-			filters=frappe15_filters(doctype, spec.get("filters")),
-			order_by=spec.get("order_by"),
+			fields=rename_columns(columns_on_this_site(doctype, [here.get(f, f) for f in (spec.get("fields") or ["name"])]), here),
+			filters=frappe15_filters(doctype, rename_filters(spec.get("filters"), here)),
+			order_by=rename_order_by(spec.get("order_by"), here),
 			limit_page_length=spec.get("limit") or 20,
 			limit_start=spec.get("start") or 0,
 			parent_doctype=parent_doctype,
@@ -205,6 +207,11 @@ def execute_call_spec(spec: dict):
 		if not doc.has_permission("read"):
 			frappe.throw(f'Noviz AI: you do not have permission to read this {doctype} record.', frappe.PermissionError)
 		full = _json_safe(doc.as_dict())
+		# A field ERPNext 15 names differently comes back under the current name.
+		from noviz_ai.utils import older_names_here
+
+		for current, old in older_names_here(doctype, spec.get("older_names")).items():
+			full.setdefault(current, full.get(old))
 		# Real bug found live 2026-08-18: doc.as_dict() alone returns
 		# EVERY field on the real ERPNext doctype — 90+ internal/technical
 		# fields (docstatus, naming_series, base_*, ...) plus raw nested
