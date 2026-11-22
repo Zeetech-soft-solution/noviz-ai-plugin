@@ -266,17 +266,39 @@ def _execute_call_spec_safely(call_spec):
 	investigation (frappe.log_error) — this only ever changes what the
 	CHAT sees, never silently hides a bug from the site's own error log.
 	"""
+	# A refused call is undone before its error goes back (live 2026-11-22,
+	# dev: ERPNext refused a workflow Approve in the PO's on_submit, after the
+	# PO was already saved as Approved and submitted; the error was returned,
+	# the request ended normally and Frappe would have committed the half-done
+	# change). Only this call's changes: earlier calls and explicit commits
+	# (a sent email's record) stay.
+	frappe.db.savepoint(CALL_SAVEPOINT)
 	try:
 		return execute_call_spec(call_spec)
 	except frappe.PermissionError as e:
+		_undo_call()
 		return {"error": f"You don't have permission to do that in ERPNext: {e}"}
 	except frappe.DoesNotExistError as e:
+		_undo_call()
 		return {"error": f"That record doesn't exist in ERPNext (it may have been deleted or renamed): {e}"}
 	except frappe.ValidationError as e:
+		_undo_call()
 		return {"error": f"ERPNext rejected that: {e}"}
 	except Exception as e:
+		_undo_call()
 		frappe.log_error(title="Noviz AI: unexpected error executing a call spec", message=frappe.get_traceback())
 		return {"error": f"Something unexpected went wrong on the ERPNext side ({type(e).__name__}) — this has been logged for the administrator."}
+
+
+CALL_SAVEPOINT = "noviz_ai_call"
+
+
+def _undo_call():
+	"""Back to the savepoint set before the call; gone when the call itself committed (nothing left to undo)."""
+	try:
+		frappe.db.rollback(save_point=CALL_SAVEPOINT)
+	except Exception:
+		pass
 
 
 def _paused_turn_key(turn_id):
