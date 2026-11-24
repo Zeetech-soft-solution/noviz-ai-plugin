@@ -143,7 +143,9 @@ if (!document.getElementById('noviz-ai-chat-style')) {
 		.noviz-ai-print-title { font-size: 11px; font-weight: 600; color: #1e7a5c; text-transform: uppercase; letter-spacing: .03em; margin-bottom: 6px; }
 		.noviz-ai-print-row { display: flex; align-items: center; gap: 10px; margin: 6px 0 0; font-size: 12px; font-weight: normal; }
 		.noviz-ai-print-row span { width: 84px; flex: none; color: var(--text-muted, #6c7680); }
-		.noviz-ai-print-row select { flex: 1; min-width: 0; }
+		.noviz-ai-print-select { position: relative; flex: 1; min-width: 0; }
+		.noviz-ai-print-select select { width: 100%; padding-right: 26px; cursor: pointer; }
+		.noviz-ai-print-caret { position: absolute; right: 8px; top: 50%; transform: translateY(-50%); pointer-events: none; display: flex; }
 		.noviz-ai-print-actions { display: flex; justify-content: flex-end; margin-top: 10px; }
 		.noviz-ai-print-actions a { margin: 0; }
 		.noviz-ai-doc-download {
@@ -644,7 +646,9 @@ class NovizAIChat {
 		const $selects = rows.map((r) => {
 			const $select = $('<select class="form-control input-sm"></select>').attr('name', r.name);
 			r.items.forEach(([value, text]) => $('<option></option>').attr('value', value).text(text).prop('selected', value === r.selected).appendTo($select));
-			$('<label class="noviz-ai-print-row"></label>').append($('<span></span>').text(r.label), $select).appendTo($card);
+			// Frappe's own select look: its select icon over the field (controls/select.js).
+			const $field = $('<div class="noviz-ai-print-select"></div>').append($select, $(`<div class="noviz-ai-print-caret">${frappe.utils.icon('select', 'xs')}</div>`));
+			$('<label class="noviz-ai-print-row"></label>').append($('<span></span>').text(r.label), $field).appendTo($card);
 			return $select;
 		});
 		const update = () => {
