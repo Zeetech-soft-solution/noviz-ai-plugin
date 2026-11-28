@@ -43,6 +43,51 @@ if (!document.getElementById('noviz-ai-chat-style')) {
 			border: 1px solid var(--border-color, #d1d8dd); border-radius: 6px; padding: 1px 4px; max-width: 260px;
 		}
 
+		/* Support: a button in the header switches between the chat and the
+		   Support view (New ticket / My tickets), which raises tickets for Noviz
+		   support and shows their status and solution. */
+		.noviz-ai-view { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+		.noviz-ai-view[hidden] { display: none; }
+		.noviz-ai-support-toggle { margin-left: auto; }
+		.noviz-ai-support { overflow-y: auto; }
+		.noviz-ai-support-tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--border-color, #d1d8dd); margin-bottom: 14px; }
+		.noviz-ai-support-tabs button {
+			background: none; border: none; border-bottom: 2px solid transparent; margin-bottom: -1px;
+			padding: 8px 14px; color: var(--text-muted, #8d99a6); font: inherit; cursor: pointer;
+		}
+		.noviz-ai-support-tabs button.active { color: var(--text-color, #1f272e); border-bottom-color: #1e7a5c; font-weight: 600; }
+		.noviz-ai-support-form { display: flex; flex-direction: column; gap: 10px; max-width: 760px; }
+		.noviz-ai-support-form label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--text-muted, #8d99a6); }
+		.noviz-ai-support-pictures { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; font-size: 12px; }
+		.noviz-ai-support-chip {
+			display: inline-flex; align-items: center; gap: 4px; padding: 2px 4px 2px 10px;
+			border: 1px solid var(--border-color, #d1d8dd); border-radius: 14px; background: var(--control-bg, #f4f5f6);
+		}
+		.noviz-ai-support-chip button { background: none; border: none; padding: 0 6px; cursor: pointer; color: var(--text-muted, #8d99a6); }
+		.noviz-ai-support-error { color: var(--red-600, #c0392b); margin: 0; }
+		.noviz-ai-support-ok { color: #1e7a5c; margin: 0 0 10px; }
+		.noviz-ai-support-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+		.noviz-ai-support-table th, .noviz-ai-support-table td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--border-color, #d1d8dd); }
+		.noviz-ai-support-table th { color: var(--text-muted, #8d99a6); font-weight: 600; background: var(--control-bg, #f4f5f6); }
+		.noviz-ai-support-table tbody tr { cursor: pointer; }
+		.noviz-ai-support-table tbody tr:hover, .noviz-ai-support-table tbody tr.active { background: #e8f4ef; }
+		.noviz-ai-support-status { display: inline-block; padding: 1px 8px; border-radius: 10px; font-size: 11px; font-weight: 600; background: #eef0f2; }
+		.noviz-ai-support-status.open { background: #fff4e0; color: #9a5b00; }
+		.noviz-ai-support-status.in_progress { background: #e6f0fb; color: #1d5fa8; }
+		.noviz-ai-support-status.resolved { background: #e3f4ec; color: #1e7a5c; }
+		.noviz-ai-support-detail {
+			margin-top: 14px; padding: 14px; border: 1px solid var(--border-color, #d1d8dd); border-radius: 10px;
+			background: var(--fg-color, #fff); display: flex; flex-direction: column; gap: 8px; max-width: 860px;
+		}
+		.noviz-ai-support-detail h4 { margin: 0; font-size: 14px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+		.noviz-ai-support-detail h5 { margin: 6px 0 0; font-size: 12px; color: var(--text-muted, #8d99a6); text-transform: uppercase; letter-spacing: .05em; }
+		.noviz-ai-support-text {
+			white-space: pre-wrap; word-break: break-word; margin: 0; font: inherit; font-size: 13px;
+			padding: 10px 12px; border-radius: 8px; background: var(--control-bg, #f4f5f6);
+		}
+		.noviz-ai-support-thumbs { display: flex; flex-wrap: wrap; gap: 8px; }
+		.noviz-ai-support-thumbs img { width: 140px; height: 100px; object-fit: cover; border-radius: 8px; border: 1px solid var(--border-color, #d1d8dd); }
+
 		.noviz-ai-chat-log { flex: 1; overflow-y: auto; padding: 0; }
 		.noviz-ai-chat-msg {
 			padding: 10px 14px; border-radius: 10px; margin-bottom: 12px;
@@ -242,7 +287,10 @@ class NovizAIChat {
 						<h3>${__('Noviz AI')}</h3>
 						<div class="noviz-ai-subtitle">${__('ERP Assistant for')} <span class="noviz-ai-company"></span></div>
 					</div>
+					<button type="button" class="btn btn-default btn-sm noviz-ai-support-toggle">${__('Support')}</button>
 				</div>
+				<div class="noviz-ai-view noviz-ai-support" hidden></div>
+				<div class="noviz-ai-view noviz-ai-chat-view">
 				<div class="noviz-ai-chat-log"></div>
 				<div class="noviz-ai-chat-input-row">
 					<div class="noviz-ai-menu" role="menu" hidden>
@@ -255,8 +303,20 @@ class NovizAIChat {
 						placeholder="${__('Ask about your ERPNext data...')}"></textarea>
 					<button type="button" class="noviz-ai-chat-send" title="${__('Send')}" aria-label="${__('Send')}">↑</button>
 				</div>
+				</div>
 			</div>
 		`).appendTo(this.page.body);
+
+		// Support: the header button switches between the chat and the Support view.
+		this.support = new NovizAISupport(this.$container.find('.noviz-ai-support'));
+		const $toggle = this.$container.find('.noviz-ai-support-toggle');
+		$toggle.on('click', () => {
+			const toSupport = this.$container.find('.noviz-ai-support').prop('hidden');
+			this.$container.find('.noviz-ai-support').prop('hidden', !toSupport);
+			this.$container.find('.noviz-ai-chat-view').prop('hidden', toSupport);
+			$toggle.text(toSupport ? __('Chat') : __('Support'));
+			if (toSupport) this.support.show();
+		});
 
 		this.loadCompanies();
 		this.$log = this.$container.find('.noviz-ai-chat-log');
@@ -941,5 +1001,192 @@ class NovizAIChat {
 				this.sending = false;
 				this.$sendBtn.prop('disabled', false);
 			});
+	}
+}
+
+/** Support: raise a ticket for Noviz support (subject, description, up to
+ *  three pictures) and follow the user's tickets, their status and Noviz
+ *  support's solution. Calls noviz_ai.support (the relay's /v1/support). Text
+ *  from a ticket is always shown as text. */
+class NovizAISupport {
+	constructor($root) {
+		this.$root = $root;
+		this.tab = 'new';
+		this.tickets = [];
+		this.pictures = [];
+		this.openId = null;
+		this.openTicket = null;
+		this.done = '';
+		this.loaded = false;
+	}
+
+	show() {
+		if (!this.loaded) {
+			this.loaded = true;
+			this.load();
+		}
+		this.render();
+	}
+
+	load() {
+		return frappe.call({ method: 'noviz_ai.support.tickets' }).then((r) => {
+			this.tickets = r.message || [];
+			this.render();
+		});
+	}
+
+	render() {
+		const $r = this.$root.empty();
+		const $tabs = $('<div class="noviz-ai-support-tabs" role="tablist"></div>').appendTo($r);
+		[['new', __('New ticket')], ['mine', __('My tickets') + (this.tickets.length ? ` (${this.tickets.length})` : '')]].forEach(([id, label]) => {
+			$('<button type="button" role="tab"></button>').text(label).toggleClass('active', this.tab === id)
+				.attr('aria-selected', this.tab === id)
+				.on('click', () => {
+					this.tab = id;
+					if (id === 'new') this.done = '';
+					if (id === 'mine') this.load();
+					this.render();
+				})
+				.appendTo($tabs);
+		});
+		if (this.tab === 'new') this.renderForm($r);
+		else this.renderTickets($r);
+	}
+
+	renderForm($r) {
+		const TYPES = ['image/png', 'image/jpeg', 'image/webp'];
+		const MAX_PICTURES = 3;
+		const MAX_BYTES = 5 * 1024 * 1024;
+		const $form = $(`<form class="noviz-ai-support-form">
+			<p class="text-muted" style="margin:0">${__('Tell Noviz support about a problem: what happened, copied text, screenshots.')}</p>
+			<label>${__('Subject')}<input class="form-control" name="subject" maxlength="200" required></label>
+			<label>${__('Description')}<textarea class="form-control" name="description" rows="7" maxlength="10000" required
+				placeholder="${__('What happened? Paste the text or a screenshot here.')}"></textarea></label>
+			<div class="noviz-ai-support-pictures"><input type="file" multiple accept="${TYPES.join(',')}"></div>
+			<p class="noviz-ai-support-error" hidden></p>
+			<div><button type="submit" class="btn btn-primary btn-sm">${__('Raise ticket')}</button></div>
+		</form>`).appendTo($r);
+		const $error = $form.find('.noviz-ai-support-error');
+		const $pics = $form.find('.noviz-ai-support-pictures');
+		const showError = (msg) => $error.text(msg || '').prop('hidden', !msg);
+		const drawPictures = () => {
+			$pics.find('.noviz-ai-support-chip').remove();
+			this.pictures.forEach((f, i) => {
+				$('<span class="noviz-ai-support-chip"></span>').text(f.name)
+					.append($('<button type="button" aria-label="Remove">×</button>').on('click', () => { this.pictures.splice(i, 1); drawPictures(); }))
+					.appendTo($pics);
+			});
+		};
+		const addFiles = (files) => {
+			showError('');
+			for (const f of Array.from(files || [])) {
+				if (!TYPES.includes(f.type)) { showError(__('Only pictures can be attached (PNG, JPEG or WebP).')); continue; }
+				if (f.size > MAX_BYTES) { showError(__('A picture is too large (5 MB at most).')); continue; }
+				if (this.pictures.length >= MAX_PICTURES) { showError(__('{0} pictures at most.', [MAX_PICTURES])); break; }
+				this.pictures.push(f);
+			}
+			drawPictures();
+		};
+		drawPictures();
+		$pics.find('input[type=file]').on('change', (e) => { addFiles(e.target.files); e.target.value = ''; });
+		$form.on('paste', (e) => {
+			const files = e.originalEvent.clipboardData && e.originalEvent.clipboardData.files;
+			if (files && files.length) addFiles(files);
+		});
+		$form.on('submit', async (e) => {
+			e.preventDefault();
+			const subject = $form.find('[name=subject]').val().trim();
+			const description = $form.find('[name=description]').val().trim();
+			if (!subject || !description) return showError(__('Subject and description are required.'));
+			const $btn = $form.find('button[type=submit]').prop('disabled', true).text(__('Sending…'));
+			showError('');
+			try {
+				const r = await frappe.call({ method: 'noviz_ai.support.raise_ticket', args: { subject, description } });
+				const ticket = r.message;
+				for (const p of this.pictures) await this.upload(ticket.id, p);
+				this.pictures = [];
+				this.done = __('Ticket #{0} raised. Noviz support will look into it.', [ticket.number]);
+				this.tab = 'mine';
+				await this.load();
+				await this.open(ticket.id);
+			} catch (err) {
+				showError((err && err.message) || __('The ticket could not be raised.'));
+				$btn.prop('disabled', false).text(__('Raise ticket'));
+			}
+		});
+	}
+
+	upload(ticketId, file) {
+		const form = new FormData();
+		form.append('ticket_id', ticketId);
+		form.append('picture', file);
+		return fetch('/api/method/noviz_ai.support.add_picture', {
+			method: 'POST',
+			headers: { 'X-Frappe-CSRF-Token': frappe.csrf_token },
+			body: form,
+		}).then(async (res) => {
+			if (res.ok) return;
+			const body = await res.json().catch(() => ({}));
+			let message = __('A picture could not be added.');
+			try {
+				message = JSON.parse(JSON.parse(body._server_messages)[0]).message || message;
+			} catch (e) {
+				// the general message
+			}
+			throw new Error(message);
+		});
+	}
+
+	when(s) {
+		return frappe.datetime.str_to_user(frappe.datetime.convert_to_user_tz(String(s).replace('T', ' ').slice(0, 19)));
+	}
+
+	renderTickets($r) {
+		const STATUS = { open: __('Open'), in_progress: __('In progress'), resolved: __('Resolved') };
+		if (this.done) $('<p class="noviz-ai-support-ok"></p>').text(this.done).appendTo($r);
+		if (!this.tickets.length) {
+			$('<p class="text-muted"></p>').text(__('No tickets yet.')).appendTo($r);
+			return;
+		}
+		const $table = $(`<table class="noviz-ai-support-table"><thead><tr>
+			<th>#</th><th>${__('Subject')}</th><th>${__('Status')}</th><th>${__('Raised')}</th></tr></thead><tbody></tbody></table>`).appendTo($r);
+		this.tickets.forEach((t) => {
+			$('<tr></tr>').toggleClass('active', t.id === this.openId)
+				.append($('<td></td>').text(t.number))
+				.append($('<td></td>').text(t.subject))
+				.append($('<td></td>').append($('<span class="noviz-ai-support-status"></span>').addClass(t.status).text(STATUS[t.status] || t.status)))
+				.append($('<td></td>').text(this.when(t.createdAt)))
+				.on('click', () => this.open(t.id))
+				.appendTo($table.find('tbody'));
+		});
+		if (this.openTicket) this.renderDetail($r, this.openTicket, STATUS);
+	}
+
+	async open(id) {
+		const r = await frappe.call({ method: 'noviz_ai.support.ticket', args: { ticket_id: id } });
+		this.openId = id;
+		this.openTicket = r.message;
+		this.render();
+	}
+
+	renderDetail($r, t, STATUS) {
+		const $d = $('<div class="noviz-ai-support-detail"></div>').appendTo($r);
+		$('<h4></h4>').text(`#${t.number} ${t.subject}`)
+			.append($('<span class="noviz-ai-support-status"></span>').addClass(t.status).text(STATUS[t.status] || t.status))
+			.appendTo($d);
+		$('<div class="text-muted small"></div>').text(`${__('Raised')} ${this.when(t.createdAt)} · ${__('updated')} ${this.when(t.updatedAt)}`).appendTo($d);
+		$('<pre class="noviz-ai-support-text"></pre>').text(t.description).appendTo($d);
+		if ((t.attachments || []).length) {
+			const $thumbs = $('<div class="noviz-ai-support-thumbs"></div>').appendTo($d);
+			t.attachments.forEach((a) => {
+				const src = `/api/method/noviz_ai.support.picture?ticket_id=${encodeURIComponent(t.id)}&attachment_id=${encodeURIComponent(a.id)}`;
+				$('<a target="_blank" rel="noopener noreferrer"></a>').attr('href', src)
+					.append($('<img>').attr('src', src).attr('alt', __('Picture attached to the ticket')))
+					.appendTo($thumbs);
+			});
+		}
+		$('<h5></h5>').text(__('Solution')).appendTo($d);
+		if (t.solution) $('<pre class="noviz-ai-support-text"></pre>').text(t.solution).appendTo($d);
+		else $('<p class="text-muted" style="margin:0"></p>').text(__('Not yet. Noviz support will add it here.')).appendTo($d);
 	}
 }
